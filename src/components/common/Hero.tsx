@@ -62,7 +62,7 @@ function Hero() {
           }}
           className="rounded-full bg-violet-600/20 p-12 shadow-[0_0_80px_rgba(139,92,246,0.35)]"
         >
-          <Bot size={160} className="text-violet-400" />
+          <Bot size={200} className="text-violet-400" />
         </motion.div>
       </div>
     </motion.div>

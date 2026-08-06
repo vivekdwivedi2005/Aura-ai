@@ -1,4 +1,5 @@
 import { Bot } from "lucide-react";
+import { Link } from "react-router-dom";
 
 function Navbar() {
     return (
@@ -18,9 +19,11 @@ function Navbar() {
                     <a href="#" className="transition-all duration-300 hover:text-violet-400 hover:scale-105">Docs</a>
                 </div>
 
-                <button className="rounded-xl bg-gradient-to-r from-violet-600 to-fuchsia-600 px-6 py-3 font-semibold text-white shadow-lg transition-all duration-300 hover:scale-105 hover:shadow-violet-500/40">
-                    Login
-                </button>
+                <Link to="/login">
+                    <button className="rounded-xl bg-gradient-to-r from-violet-600 to-fuchsia-600 px-6 py-3 font-semibold text-white shadow-lg transition-all duration-300 hover:scale-105">
+                        Login
+                    </button>
+                </Link>
 
             </div>
         </nav>

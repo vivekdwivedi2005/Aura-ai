@@ -53,7 +53,7 @@ function Home() {
             <Hero />
 
           {/* Features */}
-            <div className="mt-20 grid gap-6 md:grid-cols-2 xl:grid-cols-4">
+            <div className="mt-28 grid gap-6 md:grid-cols-2 xl:grid-cols-4">
 
             <FeatureCard
                 icon={<Heart size={30} />}
