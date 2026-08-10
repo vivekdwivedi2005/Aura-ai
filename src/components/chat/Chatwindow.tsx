@@ -1,39 +1,29 @@
+import Header from "./Header";
 import Message from "./Message";
+import type { ChatMessage } from "../../pages/chat/chat";
 
-function ChatWindow() {
+type ChatWindowProps = {
+  messages: ChatMessage[];
+};
+
+function ChatWindow({ messages }: ChatWindowProps) {
   return (
     <div className="flex flex-1 flex-col bg-slate-950">
-
       {/* Header */}
-      <div className="border-b border-slate-800 px-8 py-5">
-        <h1 className="text-xl font-bold text-white">
-          Aura AI
-        </h1>
-        <p className="text-sm text-gray-400">
-          Your intelligent AI assistant
-        </p>
-      </div>
+      <Header />
 
       {/* Messages */}
-      <div className="flex-1 overflow-y-auto px-8 py-8 space-y-6">
-
-        <Message
-          sender="ai"
-          text="👋 Hello Vivek! I'm Aura AI. How can I help you today?"
-        />
-
-        <Message
-          sender="user"
-          text="Hi Aura! Tell me about yourself."
-        />
-
-        <Message
-          sender="ai"
-          text="I'm your personal AI companion. I can chat, remember conversations, summarize PDFs, generate code and much more."
-        />
-
+      <div className="flex-1 overflow-y-auto px-8 py-8">
+        <div className="mx-auto flex w-full max-w-5xl flex-col gap-6">
+          {messages.map((msg, index) => (
+            <Message
+              key={index}
+              sender={msg.sender}
+              text={msg.text}
+            />
+          ))}
+        </div>
       </div>
-
     </div>
   );
 }
