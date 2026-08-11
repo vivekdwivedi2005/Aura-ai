@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Sidebar from "../../components/chat/Sidebar";
 import ChatWindow from "../../components/chat/ChatWindow";
 import ChatInput from "../../components/chat/ChatInput";
@@ -9,15 +9,41 @@ export type ChatMessage = {
   text: string;
 };
 
+const STORAGE_KEY = "aura-ai-chat-history";
+
+const defaultMessages: ChatMessage[] = [
+  {
+    sender: "ai",
+    text: "👋 Hello! I'm Aura AI. How can I help you today?",
+  },
+];
+
 function Chat() {
-  const [messages, setMessages] = useState<ChatMessage[]>([
-    {
-      sender: "ai",
-      text: "👋 Hello! I'm Aura AI. How can I help you today?",
-    },
-  ]);
+  const [messages, setMessages] = useState<ChatMessage[]>(() => {
+    try {
+      const savedMessages = localStorage.getItem(STORAGE_KEY);
+
+      if (savedMessages) {
+        return JSON.parse(savedMessages);
+      }
+
+      return defaultMessages;
+    } catch (error) {
+      console.error("Failed to load chat history:", error);
+      return defaultMessages;
+    }
+  });
 
   const [isTyping, setIsTyping] = useState(false);
+
+  useEffect(() => {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(messages));
+  }, [messages]);
+
+  const handleNewChat = () => {
+    localStorage.removeItem(STORAGE_KEY);
+    setMessages(defaultMessages);
+  };
 
   const handleSend = async (text: string) => {
     if (!text.trim() || isTyping) return;
@@ -27,17 +53,12 @@ function Chat() {
       text: text.trim(),
     };
 
-    // Create conversation including the new user message
     const updatedMessages = [...messages, userMessage];
 
-    // Show user message immediately
     setMessages(updatedMessages);
-
-    // Show typing indicator
     setIsTyping(true);
 
     try {
-      // Send complete conversation to Gemini
       const reply = await askGemini(updatedMessages);
 
       setMessages((prev) => [
@@ -48,7 +69,7 @@ function Chat() {
         },
       ]);
     } catch (error) {
-      console.error(error);
+      console.error("Chat error:", error);
 
       setMessages((prev) => [
         ...prev,
@@ -63,15 +84,17 @@ function Chat() {
   };
 
   return (
-    <div className="flex h-screen bg-slate-950 text-white">
-      <Sidebar />
+    <div className="flex h-screen min-h-0 overflow-hidden bg-slate-950 text-white">
+      <Sidebar onNewChat={handleNewChat} />
 
-      <div className="flex flex-1 flex-col">
-        <div className="relative flex-1 overflow-hidden">
+      <div className="flex h-full min-h-0 flex-1 flex-col">
+        {/* Chat */}
+        <div className="relative h-0 min-h-0 flex-1 overflow-hidden">
           <ChatWindow messages={messages} />
 
+          {/* Typing Indicator */}
           {isTyping && (
-            <div className="absolute bottom-6 left-10">
+            <div className="absolute bottom-6 left-10 z-10">
               <div className="flex items-center gap-3">
                 <div className="flex h-10 w-10 items-center justify-center rounded-full border border-slate-700 bg-slate-800">
                   🤖
@@ -97,7 +120,10 @@ function Chat() {
           )}
         </div>
 
-        <ChatInput onSend={handleSend} />
+        {/* Input */}
+        <div className="shrink-0">
+          <ChatInput onSend={handleSend} />
+        </div>
       </div>
     </div>
   );
