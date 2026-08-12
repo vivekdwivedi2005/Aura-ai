@@ -7,61 +7,181 @@ dotenv.config();
 
 const app = express();
 
-app.use(cors());
-app.use(express.json());
-
-const PORT = 5000;
+const PORT = process.env.PORT || 5000;
 const apiKey = process.env.GEMINI_API_KEY;
+const frontendUrl =
+    process.env.FRONTEND_URL || "http://localhost:5173";
+
+/* =========================================
+   API KEY CHECK
+========================================= */
 
 if (!apiKey) {
     console.error("❌ GEMINI_API_KEY is missing from Backend/.env");
     process.exit(1);
 }
 
+/* =========================================
+   MIDDLEWARE
+========================================= */
+
+app.use(
+    cors({
+        origin: frontendUrl,
+    })
+);
+
+app.use(express.json({ limit: "1mb" }));
+
+/* =========================================
+   GEMINI
+========================================= */
+
 const ai = new GoogleGenAI({
-    apiKey,
+    apiKey: apiKey,
 });
 
-app.get("/", (req, res) => {
-    res.json({
+/* =========================================
+   HEALTH CHECK
+========================================= */
+
+app.get("/", function(req, res) {
+    res.status(200).json({
+        success: true,
         message: "Aura AI Backend is running 🚀",
     });
 });
 
-app.post("/api/chat", async(req, res) => {
+/* =========================================
+   CHAT API
+========================================= */
+
+app.post("/api/chat", async function(req, res) {
     try {
-        const { messages } = req.body;
+        const messages = req.body.messages;
+
+        /* Validate messages */
 
         if (!Array.isArray(messages) || messages.length === 0) {
             return res.status(400).json({
+                success: false,
                 error: "Messages are required.",
             });
         }
 
-        const contents = messages.map((message) => ({
-            role: message.sender === "user" ? "user" : "model",
-            parts: [{
-                text: message.text,
-            }, ],
-        }));
+        /* Convert messages for Gemini */
+
+        const contents = messages
+            .filter(function(message) {
+                return (
+                    message &&
+                    (message.sender === "user" ||
+                        message.sender === "ai") &&
+                    typeof message.text === "string" &&
+                    message.text.trim().length > 0
+                );
+            })
+            .map(function(message) {
+                return {
+                    role: message.sender === "user" ?
+                        "user" :
+                        "model",
+                    parts: [{
+                        text: message.text.trim(),
+                    }, ],
+                };
+            });
+
+        if (contents.length === 0) {
+            return res.status(400).json({
+                success: false,
+                error: "No valid messages were provided.",
+            });
+        }
+
+        /* Gemini request */
 
         const response = await ai.models.generateContent({
             model: "gemini-3.6-flash",
-            contents,
+            contents: contents,
         });
 
-        res.json({
-            reply: response.text,
+        const reply = response.text;
+
+        if (!reply) {
+            return res.status(502).json({
+                success: false,
+                error: "Gemini returned an empty response.",
+            });
+        }
+
+        return res.status(200).json({
+            success: true,
+            reply: reply,
         });
     } catch (error) {
         console.error("Gemini API Error:", error);
 
-        res.status(500).json({
+        /* Quota / Rate limit */
+
+        if (error && error.status === 429) {
+            return res.status(429).json({
+                success: false,
+                error: "Aura AI has temporarily reached its Gemini API quota. Please try again later.",
+            });
+        }
+
+        /* Authentication */
+
+        if (
+            error &&
+            (error.status === 401 || error.status === 403)
+        ) {
+            return res.status(error.status).json({
+                success: false,
+                error: "Gemini API authentication failed. Please check the API key.",
+            });
+        }
+
+        /* Model not found */
+
+        if (error && error.status === 404) {
+            return res.status(404).json({
+                success: false,
+                error: "The configured Gemini model is unavailable.",
+            });
+        }
+
+        /* Generic error */
+
+        return res.status(500).json({
+            success: false,
             error: "Failed to get response from Gemini.",
         });
     }
 });
 
-app.listen(PORT, () => {
-    console.log(`🚀 Aura AI Backend running on http://localhost:${PORT}`);
+/* =========================================
+   404
+========================================= */
+
+app.use(function(req, res) {
+    res.status(404).json({
+        success: false,
+        error: "Route not found.",
+    });
+});
+
+/* =========================================
+   START SERVER
+========================================= */
+
+app.listen(PORT, function() {
+    console.log(
+        "🚀 Aura AI Backend running on port " + PORT
+    );
+
+    console.log(
+        "🌐 Allowed frontend: " + frontendUrl
+    );
 });

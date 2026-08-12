@@ -1,11 +1,11 @@
 import {
   MessageSquarePlus,
-  MessageSquare,
   Settings,
   Pencil,
   Trash2,
   Check,
   X,
+  Sparkles,
 } from "lucide-react";
 import { useState } from "react";
 
@@ -31,9 +31,8 @@ function Sidebar({
   onDeleteChat,
   onRenameChat,
 }: SidebarProps) {
-  const [editingChatId, setEditingChatId] = useState<string | null>(
-    null
-  );
+  const [editingChatId, setEditingChatId] =
+    useState<string | null>(null);
 
   const [editingTitle, setEditingTitle] = useState("");
 
@@ -48,140 +47,189 @@ function Sidebar({
   };
 
   const saveEditing = () => {
-    if (!editingChatId || !editingTitle.trim()) {
+    if (!editingChatId) {
       cancelEditing();
       return;
     }
 
-    onRenameChat(editingChatId, editingTitle.trim());
+    const title = editingTitle.trim();
+
+    if (!title) {
+      cancelEditing();
+      return;
+    }
+
+    onRenameChat(editingChatId, title);
     cancelEditing();
   };
 
   return (
-    <div className="flex h-screen w-72 shrink-0 flex-col border-r border-slate-800 bg-slate-900">
-      {/* Logo */}
-      <div className="border-b border-slate-800 p-6">
-        <h1 className="text-2xl font-bold text-violet-400">
-          🤖 Aura AI
-        </h1>
-      </div>
-
-      {/* New Chat */}
-      <div className="p-4">
+    <aside className="aura-sidebar">
+      {/* =========================
+          BRAND
+      ========================== */}
+      <div className="aura-sidebar-header">
         <button
+          type="button"
           onClick={onNewChat}
-          className="flex w-full items-center justify-center gap-2 rounded-xl bg-violet-600 px-4 py-3 font-semibold transition hover:bg-violet-700 hover:shadow-lg hover:shadow-violet-900/20"
+          className="aura-brand"
         >
-          <MessageSquarePlus size={20} />
-          New Chat
+          <span className="aura-brand-icon">
+            <Sparkles size={17} />
+          </span>
+
+          <span className="aura-brand-text">
+            <span className="aura-brand-name">
+              Aura AI
+            </span>
+
+            <span className="aura-brand-subtitle">
+              Personal AI assistant
+            </span>
+          </span>
         </button>
       </div>
 
-      {/* Chat History */}
-      <div className="min-h-0 flex-1 space-y-2 overflow-y-auto px-4">
+      {/* =========================
+          NEW CHAT
+      ========================== */}
+      <div className="aura-new-chat-wrapper">
+        <button
+          type="button"
+          onClick={onNewChat}
+          className="aura-new-chat"
+        >
+          <MessageSquarePlus size={18} />
+          <span>New chat</span>
+        </button>
+      </div>
+
+      {/* =========================
+          HISTORY
+      ========================== */}
+      <div className="aura-history">
+        <div className="aura-history-title">
+          Recent
+        </div>
+
         {chats.length === 0 ? (
-          <div className="px-3 py-8 text-center text-sm text-gray-500">
-            No conversations yet
+          <div className="aura-empty-history">
+            Your conversations will appear here
           </div>
         ) : (
-          chats.map((chat) => {
-            const isActive = chat.id === activeChatId;
-            const isEditing = editingChatId === chat.id;
+          <div className="aura-chat-list">
+            {chats.map((chat) => {
+              const isActive =
+                chat.id === activeChatId;
 
-            return (
-              <div
-                key={chat.id}
-                className={`group rounded-xl transition ${
-                  isActive
-                    ? "bg-slate-800"
-                    : "hover:bg-slate-800"
-                }`}
-              >
-                {isEditing ? (
-                  <div className="flex items-center gap-2 p-2">
-                    <input
-                      autoFocus
-                      value={editingTitle}
-                      onChange={(e) =>
-                        setEditingTitle(e.target.value)
-                      }
-                      onKeyDown={(e) => {
-                        if (e.key === "Enter") {
-                          saveEditing();
+              const isEditing =
+                editingChatId === chat.id;
+
+              return (
+                <div
+                  key={chat.id}
+                  className={`aura-chat-item ${
+                    isActive ? "active" : ""
+                  }`}
+                >
+                  {isEditing ? (
+                    <div className="aura-edit-row">
+                      <input
+                        type="text"
+                        autoFocus
+                        value={editingTitle}
+                        onChange={(e) =>
+                          setEditingTitle(e.target.value)
                         }
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") {
+                            e.preventDefault();
+                            saveEditing();
+                          }
 
-                        if (e.key === "Escape") {
-                          cancelEditing();
-                        }
-                      }}
-                      className="min-w-0 flex-1 rounded-lg border border-slate-600 bg-slate-950 px-2 py-2 text-sm text-white outline-none focus:border-violet-500"
-                    />
-
-                    <button
-                      onClick={saveEditing}
-                      className="rounded-lg p-1.5 text-green-400 hover:bg-slate-700"
-                      title="Save"
-                    >
-                      <Check size={16} />
-                    </button>
-
-                    <button
-                      onClick={cancelEditing}
-                      className="rounded-lg p-1.5 text-gray-400 hover:bg-slate-700"
-                      title="Cancel"
-                    >
-                      <X size={16} />
-                    </button>
-                  </div>
-                ) : (
-                  <div className="flex items-center">
-                    <button
-                      onClick={() => onSelectChat(chat.id)}
-                      className="flex min-w-0 flex-1 items-center gap-3 p-3 text-left text-gray-300"
-                    >
-                      <MessageSquare
-                        size={18}
-                        className="shrink-0 text-violet-400"
+                          if (e.key === "Escape") {
+                            e.preventDefault();
+                            cancelEditing();
+                          }
+                        }}
+                        className="aura-edit-input"
                       />
 
-                      <span className="truncate">
-                        {chat.title}
-                      </span>
-                    </button>
-
-                    <div className="mr-2 hidden items-center gap-1 group-hover:flex">
                       <button
-                        onClick={() => startEditing(chat)}
-                        className="rounded-lg p-1.5 text-gray-400 hover:bg-slate-700 hover:text-white"
-                        title="Rename chat"
+                        type="button"
+                        onClick={saveEditing}
+                        className="aura-edit-button save"
+                        title="Save"
                       >
-                        <Pencil size={15} />
+                        <Check size={14} />
                       </button>
 
                       <button
-                        onClick={() => onDeleteChat(chat.id)}
-                        className="rounded-lg p-1.5 text-gray-400 hover:bg-red-500/20 hover:text-red-400"
-                        title="Delete chat"
+                        type="button"
+                        onClick={cancelEditing}
+                        className="aura-edit-button"
+                        title="Cancel"
                       >
-                        <Trash2 size={15} />
+                        <X size={14} />
                       </button>
                     </div>
-                  </div>
-                )}
-              </div>
-            );
-          })
+                  ) : (
+                    <div className="aura-chat-row">
+                      <button
+                        type="button"
+                        onClick={() =>
+                          onSelectChat(chat.id)
+                        }
+                        className="aura-chat-select"
+                      >
+                        <span className="aura-chat-title">
+                          {chat.title}
+                        </span>
+                      </button>
+
+                      <div className="aura-chat-actions">
+                        <button
+                          type="button"
+                          onClick={() =>
+                            startEditing(chat)
+                          }
+                          title="Rename chat"
+                        >
+                          <Pencil size={13} />
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() =>
+                            onDeleteChat(chat.id)
+                          }
+                          title="Delete chat"
+                        >
+                          <Trash2 size={13} />
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
         )}
       </div>
 
-      {/* Bottom */}
-      <div className="border-t border-slate-800 p-4">
-        <button className="flex w-full items-center gap-3 rounded-xl p-3 text-gray-300 transition hover:bg-slate-800">
-          <Settings size={18} />
-          Settings
+      {/* =========================
+          SETTINGS
+      ========================== */}
+      <div className="aura-sidebar-bottom">
+        <button
+          type="button"
+          className="aura-settings"
+        >
+          <Settings size={17} />
+          <span>Settings</span>
         </button>
       </div>
-    </div>
+    </aside>
   );
 }
 

@@ -12,38 +12,75 @@ function ChatWindow({ messages }: ChatWindowProps) {
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({
       behavior: "smooth",
+      block: "end",
     });
   }, [messages]);
 
+  const isEmpty =
+    messages.length === 1 &&
+    messages[0].sender === "ai";
+
   return (
-    <div className="flex h-full min-h-0 w-full flex-col bg-slate-950">
+    <main className="aura-chat-window">
       {/* Header */}
-      <div className="shrink-0 border-b border-slate-800 px-8 py-5">
-        <h1 className="text-xl font-bold text-white">
-          Aura AI
-        </h1>
-
-        <p className="text-sm text-gray-400">
-          Your intelligent AI assistant
-        </p>
-      </div>
-
-      {/* Scrollable Messages */}
-      <div className="h-0 min-h-0 flex-1 overflow-y-scroll px-8 py-8">
-        <div className="mx-auto flex w-full max-w-4xl flex-col gap-6">
-          {messages.map((msg, index) => (
-            <Message
-              key={index}
-              sender={msg.sender}
-              text={msg.text}
-            />
-          ))}
-
-          {/* Auto-scroll target */}
-          <div ref={messagesEndRef} />
+      <header className="aura-chat-header">
+        <div className="aura-chat-header-inner">
+          <div className="aura-header-title">
+            <span className="aura-header-dot" />
+            <span>Aura AI</span>
+          </div>
         </div>
+      </header>
+
+      {/* Scrollable Chat Area */}
+      <div className="aura-messages-scroll">
+        {isEmpty ? (
+          <div className="aura-welcome">
+            <div className="aura-welcome-icon">
+              <SparklesIcon />
+            </div>
+
+            <h1>How can I help you today?</h1>
+
+            <p>
+              Ask Aura AI anything. Start a conversation,
+              explore ideas, or get help with your work.
+            </p>
+          </div>
+        ) : (
+          <div className="aura-conversation">
+            {messages.map((message, index) => (
+              <Message
+                key={`${index}-${message.sender}`}
+                sender={message.sender}
+                text={message.text}
+              />
+            ))}
+
+            <div
+              ref={messagesEndRef}
+              className="h-px w-full"
+            />
+          </div>
+        )}
       </div>
-    </div>
+    </main>
+  );
+}
+
+function SparklesIcon() {
+  return (
+    <svg
+      width="25"
+      height="25"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.7"
+    >
+      <path d="m12 3-1.2 4.2L7 8.5l3.8 1.3L12 14l1.2-4.2L17 8.5l-3.8-1.3L12 3Z" />
+      <path d="m19 13-.7 2.3-2.3.7 2.3.7.7 2.3.7-2.3 2.3-.7-2.3-.7L19 13Z" />
+    </svg>
   );
 }
 

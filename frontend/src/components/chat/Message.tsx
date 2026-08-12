@@ -1,5 +1,12 @@
-import { Bot, User, Copy, Check } from "lucide-react";
+import {
+  Bot,
+  User,
+  Copy,
+  Check,
+} from "lucide-react";
 import { useState } from "react";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 
 type MessageProps = {
   sender: "user" | "ai";
@@ -11,88 +18,221 @@ function Message({ sender, text }: MessageProps) {
   const [copied, setCopied] = useState(false);
 
   const copyMessage = async () => {
-    await navigator.clipboard.writeText(text);
-    setCopied(true);
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopied(true);
 
-    setTimeout(() => {
-      setCopied(false);
-    }, 1500);
+      setTimeout(() => {
+        setCopied(false);
+      }, 1500);
+    } catch (error) {
+      console.error("Copy failed:", error);
+    }
   };
 
   return (
-    <div
-      className={`flex w-full ${
-        isUser ? "justify-end" : "justify-start"
+    <article
+      className={`aura-message ${
+        isUser ? "user-message" : "ai-message"
       }`}
     >
+      {/* Avatar */}
       <div
-        className={`group flex max-w-4xl items-end gap-3 ${
-          isUser ? "flex-row-reverse" : ""
+        className={`aura-message-avatar ${
+          isUser ? "user-avatar" : "ai-avatar"
         }`}
       >
-        {/* Avatar */}
+        {isUser ? (
+          <User size={15} />
+        ) : (
+          <Bot
+            size={16}
+            className="text-violet-400"
+          />
+        )}
+      </div>
+
+      {/* Content */}
+      <div className="aura-message-content">
+        {isUser ? (
+          <div className="aura-user-text">
+            {text}
+          </div>
+        ) : (
+          <div className="aura-ai-text">
+            <ReactMarkdown
+              remarkPlugins={[remarkGfm]}
+              components={{
+                h1: ({ children }) => (
+                  <h1>{children}</h1>
+                ),
+
+                h2: ({ children }) => (
+                  <h2>{children}</h2>
+                ),
+
+                h3: ({ children }) => (
+                  <h3>{children}</h3>
+                ),
+
+                p: ({ children }) => (
+                  <p>{children}</p>
+                ),
+
+                strong: ({ children }) => (
+                  <strong>{children}</strong>
+                ),
+
+                ul: ({ children }) => (
+                  <ul>{children}</ul>
+                ),
+
+                ol: ({ children }) => (
+                  <ol>{children}</ol>
+                ),
+
+                li: ({ children }) => (
+                  <li>{children}</li>
+                ),
+
+                blockquote: ({ children }) => (
+                  <blockquote>{children}</blockquote>
+                ),
+
+                code: ({
+                  className,
+                  children,
+                }) => {
+                  const match =
+                    /language-(\w+)/.exec(
+                      className || ""
+                    );
+
+                  const code = String(children).replace(
+                    /\n$/,
+                    ""
+                  );
+
+                  if (!match) {
+                    return (
+                      <code className="aura-inline-code">
+                        {children}
+                      </code>
+                    );
+                  }
+
+                  return (
+                    <CodeBlock
+                      language={match[1]}
+                      code={code}
+                    />
+                  );
+                },
+
+                pre: ({ children }) => (
+                  <>{children}</>
+                ),
+
+                a: ({ href, children }) => (
+                  <a
+                    href={href}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                  >
+                    {children}
+                  </a>
+                ),
+
+                table: ({ children }) => (
+                  <div className="aura-table-wrapper">
+                    <table>{children}</table>
+                  </div>
+                ),
+
+                th: ({ children }) => (
+                  <th>{children}</th>
+                ),
+
+                td: ({ children }) => (
+                  <td>{children}</td>
+                ),
+              }}
+            >
+              {text}
+            </ReactMarkdown>
+          </div>
+        )}
+
+        {/* Message action */}
         <div
-          className={`flex h-10 w-10 items-center justify-center rounded-full shrink-0 ${
-            isUser
-              ? "bg-gradient-to-r from-violet-600 to-fuchsia-600"
-              : "border border-slate-700 bg-slate-800"
+          className={`aura-message-actions ${
+            isUser ? "user-actions" : ""
           }`}
         >
-          {isUser ? (
-            <User size={18} className="text-white" />
-          ) : (
-            <Bot size={18} className="text-violet-400" />
-          )}
-        </div>
-
-        {/* Message */}
-        <div className="relative">
-
-          <div
-            className={`rounded-3xl px-5 py-4 shadow-lg transition-all duration-300 ${
-              isUser
-                ? "bg-gradient-to-r from-violet-600 to-fuchsia-600 text-white"
-                : "border border-slate-700 bg-slate-800 text-gray-100"
-            }`}
+          <button
+            onClick={copyMessage}
+            title="Copy message"
           >
-            <p className="whitespace-pre-wrap leading-7">
-              {text}
-            </p>
-          </div>
-
-          {/* Bottom Row */}
-          <div
-            className={`mt-2 flex items-center gap-3 ${
-              isUser ? "justify-end" : "justify-start"
-            }`}
-          >
-            <span className="text-xs text-gray-500">
-              {new Date().toLocaleTimeString([], {
-                hour: "2-digit",
-                minute: "2-digit",
-              })}
-            </span>
-
-            <button
-              onClick={copyMessage}
-              className="opacity-0 transition group-hover:opacity-100"
-            >
-              {copied ? (
-                <Check
-                  size={16}
-                  className="text-green-400"
-                />
-              ) : (
-                <Copy
-                  size={16}
-                  className="text-gray-500 hover:text-white"
-                />
-              )}
-            </button>
-          </div>
-
+            {copied ? (
+              <Check
+                size={14}
+                className="text-green-400"
+              />
+            ) : (
+              <Copy size={14} />
+            )}
+          </button>
         </div>
       </div>
+    </article>
+  );
+}
+
+function CodeBlock({
+  language,
+  code,
+}: {
+  language: string;
+  code: string;
+}) {
+  const [copied, setCopied] = useState(false);
+
+  const copyCode = async () => {
+    try {
+      await navigator.clipboard.writeText(code);
+      setCopied(true);
+
+      setTimeout(() => {
+        setCopied(false);
+      }, 1500);
+    } catch (error) {
+      console.error("Copy code failed:", error);
+    }
+  };
+
+  return (
+    <div className="aura-code-block">
+      <div className="aura-code-header">
+        <span>{language}</span>
+
+        <button onClick={copyCode}>
+          {copied ? (
+            <>
+              <Check size={13} />
+              Copied
+            </>
+          ) : (
+            <>
+              <Copy size={13} />
+              Copy
+            </>
+          )}
+        </button>
+      </div>
+
+      <pre>
+        <code>{code}</code>
+      </pre>
     </div>
   );
 }

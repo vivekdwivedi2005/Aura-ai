@@ -33,35 +33,52 @@ const createChat = (): Chat => ({
   messages: [...defaultMessages],
 });
 
+function loadChats(): Chat[] {
+  try {
+    const savedChats = localStorage.getItem(CHATS_STORAGE_KEY);
+
+    if (!savedChats) {
+      return [createChat()];
+    }
+
+    const parsedChats = JSON.parse(savedChats);
+
+    if (!Array.isArray(parsedChats)) {
+      return [createChat()];
+    }
+
+    if (parsedChats.length === 0) {
+      return [createChat()];
+    }
+
+    return parsedChats;
+  } catch (error) {
+    console.error("Failed to load chats:", error);
+    return [createChat()];
+  }
+}
+
+function loadActiveChatId(): string {
+  try {
+    return (
+      localStorage.getItem(ACTIVE_CHAT_STORAGE_KEY) || ""
+    );
+  } catch {
+    return "";
+  }
+}
+
 function Chat() {
-  const [chats, setChats] = useState<Chat[]>(() => {
-    try {
-      const savedChats = localStorage.getItem(CHATS_STORAGE_KEY);
-
-      if (savedChats) {
-        return JSON.parse(savedChats);
-      }
-
-      return [createChat()];
-    } catch (error) {
-      console.error("Failed to load chats:", error);
-      return [createChat()];
-    }
-  });
-
-  const [activeChatId, setActiveChatId] = useState<string>(() => {
-    try {
-      return (
-        localStorage.getItem(ACTIVE_CHAT_STORAGE_KEY) || ""
-      );
-    } catch {
-      return "";
-    }
-  });
+  const [chats, setChats] = useState<Chat[]>(loadChats);
+  const [activeChatId, setActiveChatId] =
+    useState<string>(loadActiveChatId);
 
   const [isTyping, setIsTyping] = useState(false);
 
-  // Make sure an active chat always exists
+  /* -----------------------------------------
+     Make sure an active chat exists
+  ----------------------------------------- */
+
   useEffect(() => {
     if (chats.length === 0) {
       const newChat = createChat();
@@ -72,40 +89,69 @@ function Chat() {
       return;
     }
 
-    const activeChatExists = chats.some(
+    const activeExists = chats.some(
       (chat) => chat.id === activeChatId
     );
 
-    if (!activeChatExists) {
+    if (!activeExists) {
       setActiveChatId(chats[0].id);
     }
   }, [chats, activeChatId]);
 
-  // Save all chats
+  /* -----------------------------------------
+     Save chats
+  ----------------------------------------- */
+
   useEffect(() => {
-    localStorage.setItem(
-      CHATS_STORAGE_KEY,
-      JSON.stringify(chats)
-    );
+    try {
+      localStorage.setItem(
+        CHATS_STORAGE_KEY,
+        JSON.stringify(chats)
+      );
+    } catch (error) {
+      console.error(
+        "Failed to save chats to localStorage:",
+        error
+      );
+    }
   }, [chats]);
 
-  // Save active chat
+  /* -----------------------------------------
+     Save active chat
+  ----------------------------------------- */
+
   useEffect(() => {
-    if (activeChatId) {
-      localStorage.setItem(
-        ACTIVE_CHAT_STORAGE_KEY,
-        activeChatId
+    try {
+      if (activeChatId) {
+        localStorage.setItem(
+          ACTIVE_CHAT_STORAGE_KEY,
+          activeChatId
+        );
+      }
+    } catch (error) {
+      console.error(
+        "Failed to save active chat:",
+        error
       );
     }
   }, [activeChatId]);
+
+  /* -----------------------------------------
+     Active chat
+  ----------------------------------------- */
 
   const activeChat =
     chats.find((chat) => chat.id === activeChatId) ||
     chats[0];
 
-  const messages = activeChat?.messages || defaultMessages;
+  const messages =
+    activeChat?.messages || defaultMessages;
 
-  // New Chat
+  /* -----------------------------------------
+     NEW CHAT
+     No artificial limit
+  ----------------------------------------- */
+
   const handleNewChat = () => {
     const newChat = createChat();
 
@@ -113,17 +159,19 @@ function Chat() {
     setActiveChatId(newChat.id);
   };
 
-  // Select Chat
-  const handleSelectChat = (chatId: string) => {
-    if (isTyping) return;
+  /* -----------------------------------------
+     SELECT CHAT
+  ----------------------------------------- */
 
+  const handleSelectChat = (chatId: string) => {
     setActiveChatId(chatId);
   };
 
-  // Delete Chat
-  const handleDeleteChat = (chatId: string) => {
-    if (isTyping) return;
+  /* -----------------------------------------
+     DELETE CHAT
+  ----------------------------------------- */
 
+  const handleDeleteChat = (chatId: string) => {
     const chatToDelete = chats.find(
       (chat) => chat.id === chatId
     );
@@ -156,42 +204,57 @@ function Chat() {
     }
   };
 
-  // Rename Chat
+  /* -----------------------------------------
+     RENAME CHAT
+  ----------------------------------------- */
+
   const handleRenameChat = (
     chatId: string,
     title: string
   ) => {
-    if (!title.trim()) return;
+    const trimmedTitle = title.trim();
+
+    if (!trimmedTitle) return;
 
     setChats((prev) =>
       prev.map((chat) =>
         chat.id === chatId
           ? {
               ...chat,
-              title: title.trim(),
+              title: trimmedTitle,
             }
           : chat
       )
     );
   };
 
-  // Send Message
+  /* -----------------------------------------
+     SEND MESSAGE
+  ----------------------------------------- */
+
   const handleSend = async (text: string) => {
-    if (!text.trim() || isTyping || !activeChat) {
+    const trimmedText = text.trim();
+
+    if (!trimmedText || isTyping || !activeChat) {
       return;
     }
 
+    const currentChatId = activeChat.id;
+
     const userMessage: ChatMessage = {
       sender: "user",
-      text: text.trim(),
+      text: trimmedText,
     };
 
-    const updatedMessages = [
+    const conversationForGemini: ChatMessage[] = [
       ...activeChat.messages,
       userMessage,
     ];
 
-    // Create title from first user message
+    /* ---------------------------------------
+       Generate title automatically
+    --------------------------------------- */
+
     let updatedTitle = activeChat.title;
 
     if (
@@ -199,19 +262,22 @@ function Chat() {
       activeChat.messages.length === 1
     ) {
       updatedTitle =
-        text.trim().length > 32
-          ? `${text.trim().slice(0, 32)}...`
-          : text.trim();
+        trimmedText.length > 32
+          ? `${trimmedText.slice(0, 32)}...`
+          : trimmedText;
     }
 
-    // Immediately show user message
+    /* ---------------------------------------
+       Immediately add user message
+    --------------------------------------- */
+
     setChats((prev) =>
       prev.map((chat) =>
-        chat.id === activeChat.id
+        chat.id === currentChatId
           ? {
               ...chat,
               title: updatedTitle,
-              messages: updatedMessages,
+              messages: conversationForGemini,
             }
           : chat
       )
@@ -220,16 +286,18 @@ function Chat() {
     setIsTyping(true);
 
     try {
-      const reply = await askGemini(updatedMessages);
+      const reply = await askGemini(
+        conversationForGemini
+      );
 
+      /* Add only AI response */
       setChats((prev) =>
         prev.map((chat) =>
-          chat.id === activeChat.id
+          chat.id === currentChatId
             ? {
                 ...chat,
                 messages: [
                   ...chat.messages,
-                  userMessage,
                   {
                     sender: "ai",
                     text: reply,
@@ -242,17 +310,21 @@ function Chat() {
     } catch (error) {
       console.error("Chat error:", error);
 
+      const errorMessage =
+        error instanceof Error
+          ? error.message
+          : "❌ Something went wrong while contacting Aura AI.";
+
       setChats((prev) =>
         prev.map((chat) =>
-          chat.id === activeChat.id
+          chat.id === currentChatId
             ? {
                 ...chat,
                 messages: [
                   ...chat.messages,
-                  userMessage,
                   {
                     sender: "ai",
-                    text: "❌ Something went wrong while contacting Aura AI.",
+                    text: errorMessage,
                   },
                 ],
               }
@@ -264,6 +336,10 @@ function Chat() {
     }
   };
 
+  /* -----------------------------------------
+     Sidebar data
+  ----------------------------------------- */
+
   const sidebarChats: ChatHistoryItem[] = chats.map(
     (chat) => ({
       id: chat.id,
@@ -272,7 +348,7 @@ function Chat() {
   );
 
   return (
-    <div className="flex h-screen min-h-0 overflow-hidden bg-slate-950 text-white">
+    <div className="flex h-screen min-h-0 w-full overflow-hidden bg-[#212121] text-white">
       {/* Sidebar */}
       <Sidebar
         chats={sidebarChats}
@@ -283,32 +359,35 @@ function Chat() {
         onRenameChat={handleRenameChat}
       />
 
-      {/* Main Chat */}
-      <div className="flex h-full min-h-0 flex-1 flex-col">
-        <div className="relative h-0 min-h-0 flex-1 overflow-hidden">
+      {/* Main area */}
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+        {/* Chat */}
+        <div className="relative min-h-0 flex-1 overflow-hidden">
           <ChatWindow messages={messages} />
 
-          {/* Typing Indicator */}
+          {/* Typing indicator */}
           {isTyping && (
-            <div className="absolute bottom-6 left-10 z-10">
+            <div className="pointer-events-none absolute bottom-4 left-1/2 z-20 w-full max-w-3xl -translate-x-1/2 px-4">
               <div className="flex items-center gap-3">
-                <div className="flex h-10 w-10 items-center justify-center rounded-full border border-slate-700 bg-slate-800">
-                  🤖
+                <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-slate-700 bg-[#292929]">
+                  <span className="text-sm text-violet-400">
+                    ✦
+                  </span>
                 </div>
 
-                <div className="rounded-3xl border border-slate-700 bg-slate-800 px-5 py-4">
-                  <div className="flex gap-2">
-                    <div className="h-2 w-2 animate-bounce rounded-full bg-violet-400" />
+                <div className="rounded-2xl border border-slate-700 bg-[#2f2f2f] px-4 py-3 shadow-lg">
+                  <div className="flex items-center gap-1.5">
+                    <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-violet-400" />
 
-                    <div
-                      className="h-2 w-2 animate-bounce rounded-full bg-violet-400"
+                    <span
+                      className="h-1.5 w-1.5 animate-bounce rounded-full bg-violet-400"
                       style={{
                         animationDelay: "0.15s",
                       }}
                     />
 
-                    <div
-                      className="h-2 w-2 animate-bounce rounded-full bg-violet-400"
+                    <span
+                      className="h-1.5 w-1.5 animate-bounce rounded-full bg-violet-400"
                       style={{
                         animationDelay: "0.3s",
                       }}
@@ -320,7 +399,7 @@ function Chat() {
           )}
         </div>
 
-        {/* Input */}
+        {/* Composer */}
         <div className="shrink-0">
           <ChatInput onSend={handleSend} />
         </div>
