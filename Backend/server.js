@@ -7,39 +7,158 @@ dotenv.config();
 
 const app = express();
 
-const PORT = process.env.PORT || 5000;
-const apiKey = process.env.GEMINI_API_KEY;
-const frontendUrl =
-    process.env.FRONTEND_URL || "http://localhost:5173";
-
 /* =========================================
-   API KEY CHECK
+   CONFIGURATION
 ========================================= */
 
+const PORT = process.env.PORT || 5000;
+const apiKey = process.env.GEMINI_API_KEY;
+
 if (!apiKey) {
-    console.error("❌ GEMINI_API_KEY is missing from Backend/.env");
+    console.error(
+        "❌ GEMINI_API_KEY is missing from Backend/.env"
+    );
+
     process.exit(1);
 }
+
+/* =========================================
+   CORS
+========================================= */
+
+const allowedExactOrigins = [
+    "http://localhost:5173",
+    "https://aura-ai-vivek.vercel.app",
+];
+
+app.use(
+    cors({
+        origin: function(origin, callback) {
+            // Requests without an Origin header
+            if (!origin) {
+                return callback(null, true);
+            }
+
+            // Exact allowed origins
+            if (allowedExactOrigins.includes(origin)) {
+                return callback(null, true);
+            }
+
+            // Allow Vercel preview/deployment URLs
+            try {
+                const url = new URL(origin);
+
+                if (url.hostname.endsWith(".vercel.app")) {
+                    return callback(null, true);
+                }
+            } catch (error) {
+                return callback(
+                    new Error("Invalid request origin.")
+                );
+            }
+
+            return callback(
+                new Error("Origin not allowed by CORS.")
+            );
+        },
+
+        methods: ["GET", "POST", "OPTIONS"],
+        allowedHeaders: ["Content-Type"],
+    })
+);
 
 /* =========================================
    MIDDLEWARE
 ========================================= */
 
-app.use(
-    cors({
-        origin: frontendUrl,
-    })
-);
-
 app.use(express.json({ limit: "1mb" }));
 
 /* =========================================
-   GEMINI
+   GEMINI CLIENT
 ========================================= */
 
 const ai = new GoogleGenAI({
     apiKey: apiKey,
 });
+
+/* =========================================
+   GEMINI RETRY FUNCTION
+========================================= */
+
+async function generateWithRetry(
+    contents,
+    maxRetries = 3
+) {
+    let lastError = null;
+
+    for (let attempt = 0; attempt <= maxRetries; attempt++) {
+        try {
+            const response =
+                await ai.models.generateContent({
+                    model: "gemini-3.6-flash",
+                    contents: contents,
+                });
+
+            return response;
+        } catch (error) {
+            lastError = error;
+
+            const status = error && error.status;
+
+            console.error(
+                `Gemini attempt ${attempt + 1} failed with status:`,
+                status
+            );
+
+            /*
+             * Retry only temporary errors.
+             *
+             * 429 = rate limit / quota
+             * 500 = server error
+             * 502 = bad gateway
+             * 503 = service temporarily unavailable
+             */
+            const shouldRetry =
+                status === 429 ||
+                status === 500 ||
+                status === 502 ||
+                status === 503;
+
+            if (!shouldRetry) {
+                throw error;
+            }
+
+            /*
+             * Don't retry after final attempt.
+             */
+            if (attempt === maxRetries) {
+                break;
+            }
+
+            /*
+             * Exponential backoff:
+             *
+             * Attempt 1 → 1 sec
+             * Attempt 2 → 2 sec
+             * Attempt 3 → 4 sec
+             */
+            const delay =
+                1000 * Math.pow(2, attempt);
+
+            console.log(
+                `⏳ Retrying Gemini request in ${
+          delay / 1000
+        } seconds...`
+            );
+
+            await new Promise((resolve) =>
+                setTimeout(resolve, delay)
+            );
+        }
+    }
+
+    throw lastError;
+}
 
 /* =========================================
    HEALTH CHECK
@@ -60,16 +179,25 @@ app.post("/api/chat", async function(req, res) {
     try {
         const messages = req.body.messages;
 
-        /* Validate messages */
+        /* Validate request */
 
-        if (!Array.isArray(messages) || messages.length === 0) {
+        if (!Array.isArray(messages)) {
+            return res.status(400).json({
+                success: false,
+                error: "Messages must be an array.",
+            });
+        }
+
+        if (messages.length === 0) {
             return res.status(400).json({
                 success: false,
                 error: "Messages are required.",
             });
         }
 
-        /* Convert messages for Gemini */
+        /* =======================================
+           Convert Aura messages → Gemini format
+        ======================================= */
 
         const contents = messages
             .filter(function(message) {
@@ -86,6 +214,7 @@ app.post("/api/chat", async function(req, res) {
                     role: message.sender === "user" ?
                         "user" :
                         "model",
+
                     parts: [{
                         text: message.text.trim(),
                     }, ],
@@ -99,14 +228,21 @@ app.post("/api/chat", async function(req, res) {
             });
         }
 
-        /* Gemini request */
+        /* =======================================
+           Gemini request with retry
+        ======================================= */
 
-        const response = await ai.models.generateContent({
-            model: "gemini-3.6-flash",
-            contents: contents,
-        });
+        const response = await generateWithRetry(
+            contents
+        );
 
-        const reply = response.text;
+        const reply =
+            response &&
+            typeof response.text === "string" ?
+            response.text.trim() :
+            "";
+
+        /* Empty response */
 
         if (!reply) {
             return res.status(502).json({
@@ -115,54 +251,91 @@ app.post("/api/chat", async function(req, res) {
             });
         }
 
+        /* =======================================
+           Success
+        ======================================= */
+
         return res.status(200).json({
             success: true,
             reply: reply,
         });
     } catch (error) {
-        console.error("Gemini API Error:", error);
+        console.error(
+            "❌ Gemini API Error:",
+            error
+        );
 
-        /* Quota / Rate limit */
+        const status =
+            error && error.status;
 
-        if (error && error.status === 429) {
+        /* =======================================
+           QUOTA / RATE LIMIT
+        ======================================= */
+
+        if (status === 429) {
             return res.status(429).json({
                 success: false,
-                error: "Aura AI has temporarily reached its Gemini API quota. Please try again later.",
+                error: "⚠️ Aura AI has reached the Gemini API quota or rate limit. Please try again later.",
             });
         }
 
-        /* Authentication */
+        /* =======================================
+           TEMPORARY UNAVAILABLE
+        ======================================= */
 
-        if (
-            error &&
-            (error.status === 401 || error.status === 403)
-        ) {
-            return res.status(error.status).json({
+        if (status === 503) {
+            return res.status(503).json({
                 success: false,
-                error: "Gemini API authentication failed. Please check the API key.",
+                error: "⚠️ Gemini is temporarily unavailable because of high demand. Please try again in a moment.",
             });
         }
 
-        /* Model not found */
+        /* =======================================
+           SERVER ERRORS
+        ======================================= */
 
-        if (error && error.status === 404) {
+        if (status === 500 || status === 502) {
+            return res.status(502).json({
+                success: false,
+                error: "⚠️ Gemini is temporarily having a server problem. Please try again.",
+            });
+        }
+
+        /* =======================================
+           AUTHENTICATION
+        ======================================= */
+
+        if (status === 401 || status === 403) {
+            return res.status(status).json({
+                success: false,
+                error: "❌ Gemini API authentication failed. Please check the API key.",
+            });
+        }
+
+        /* =======================================
+           MODEL NOT FOUND
+        ======================================= */
+
+        if (status === 404) {
             return res.status(404).json({
                 success: false,
-                error: "The configured Gemini model is unavailable.",
+                error: "❌ The configured Gemini model is unavailable.",
             });
         }
 
-        /* Generic error */
+        /* =======================================
+           GENERIC ERROR
+        ======================================= */
 
         return res.status(500).json({
             success: false,
-            error: "Failed to get response from Gemini.",
+            error: "❌ Failed to get response from Gemini.",
         });
     }
 });
 
 /* =========================================
-   404
+   404 ROUTE
 ========================================= */
 
 app.use(function(req, res) {
@@ -176,12 +349,14 @@ app.use(function(req, res) {
    START SERVER
 ========================================= */
 
-app.listen(PORT, function() {
+app.listen(PORT, "0.0.0.0", function() {
     console.log(
-        "🚀 Aura AI Backend running on port " + PORT
+        "🚀 Aura AI Backend running on port " +
+        PORT
     );
 
     console.log(
-        "🌐 Allowed frontend: " + frontendUrl
+        "🌐 Aura AI API ready at http://localhost:" +
+        PORT
     );
 });

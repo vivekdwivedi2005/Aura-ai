@@ -5,7 +5,6 @@ import {
   Trash2,
   Check,
   X,
-  Sparkles,
 } from "lucide-react";
 import { useState } from "react";
 
@@ -34,9 +33,12 @@ function Sidebar({
   const [editingChatId, setEditingChatId] =
     useState<string | null>(null);
 
-  const [editingTitle, setEditingTitle] = useState("");
+  const [editingTitle, setEditingTitle] =
+    useState("");
 
-  const startEditing = (chat: ChatHistoryItem) => {
+  const startEditing = (
+    chat: ChatHistoryItem
+  ) => {
     setEditingChatId(chat.id);
     setEditingTitle(chat.title);
   };
@@ -65,17 +67,22 @@ function Sidebar({
 
   return (
     <aside className="aura-sidebar">
-      {/* =========================
+      {/* =====================================
           BRAND
-      ========================== */}
+      ====================================== */}
+
       <div className="aura-sidebar-header">
         <button
           type="button"
           onClick={onNewChat}
           className="aura-brand"
         >
-          <span className="aura-brand-icon">
-            <Sparkles size={17} />
+          <span className="aura-brand-icon overflow-hidden">
+            <img
+              src="/aura-logo.png"
+              alt="Aura AI"
+              className="h-full w-full object-cover"
+            />
           </span>
 
           <span className="aura-brand-text">
@@ -90,9 +97,10 @@ function Sidebar({
         </button>
       </div>
 
-      {/* =========================
+      {/* =====================================
           NEW CHAT
-      ========================== */}
+      ====================================== */}
+
       <div className="aura-new-chat-wrapper">
         <button
           type="button"
@@ -100,13 +108,15 @@ function Sidebar({
           className="aura-new-chat"
         >
           <MessageSquarePlus size={18} />
+
           <span>New chat</span>
         </button>
       </div>
 
-      {/* =========================
+      {/* =====================================
           HISTORY
-      ========================== */}
+      ====================================== */}
+
       <div className="aura-history">
         <div className="aura-history-title">
           Recent
@@ -132,6 +142,7 @@ function Sidebar({
                     isActive ? "active" : ""
                   }`}
                 >
+                  {/* EDIT MODE */}
                   {isEditing ? (
                     <div className="aura-edit-row">
                       <input
@@ -139,7 +150,9 @@ function Sidebar({
                         autoFocus
                         value={editingTitle}
                         onChange={(e) =>
-                          setEditingTitle(e.target.value)
+                          setEditingTitle(
+                            e.target.value
+                          )
                         }
                         onKeyDown={(e) => {
                           if (e.key === "Enter") {
@@ -174,6 +187,7 @@ function Sidebar({
                       </button>
                     </div>
                   ) : (
+                    /* NORMAL MODE */
                     <div className="aura-chat-row">
                       <button
                         type="button"
@@ -217,15 +231,17 @@ function Sidebar({
         )}
       </div>
 
-      {/* =========================
+      {/* =====================================
           SETTINGS
-      ========================== */}
+      ====================================== */}
+
       <div className="aura-sidebar-bottom">
         <button
           type="button"
           className="aura-settings"
         >
           <Settings size={17} />
+
           <span>Settings</span>
         </button>
       </div>

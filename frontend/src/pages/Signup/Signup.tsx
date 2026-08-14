@@ -5,29 +5,57 @@ import {
   EyeOff,
   Lock,
   Mail,
+  User,
 } from "lucide-react";
-import { useLocation, useNavigate } from "react-router-dom";
+import { useNavigate } from "react-router-dom";
 
-function Login() {
+function Signup() {
   const navigate = useNavigate();
-  const location = useLocation();
 
+  const [name, setName] = useState("");
   const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
+  const [password, setPassword] =
+    useState("");
+  const [confirmPassword, setConfirmPassword] =
+    useState("");
+
   const [showPassword, setShowPassword] =
     useState(false);
+
+  const [showConfirmPassword, setShowConfirmPassword] =
+    useState(false);
+
   const [error, setError] = useState("");
 
-  const handleLogin = (
+  const handleSignup = (
     e: React.FormEvent<HTMLFormElement>
   ) => {
     e.preventDefault();
 
     setError("");
 
-    if (!email.trim() || !password.trim()) {
+    if (
+      !name.trim() ||
+      !email.trim() ||
+      !password.trim() ||
+      !confirmPassword.trim()
+    ) {
       setError(
-        "Please enter your email and password."
+        "Please fill in all the fields."
+      );
+      return;
+    }
+
+    if (password.length < 6) {
+      setError(
+        "Password must be at least 6 characters."
+      );
+      return;
+    }
+
+    if (password !== confirmPassword) {
+      setError(
+        "Passwords do not match."
       );
       return;
     }
@@ -40,10 +68,7 @@ function Login() {
       "true"
     );
 
-    const redirectPath =
-      location.state?.from || "/chat";
-
-    navigate(redirectPath, {
+    navigate("/chat", {
       replace: true,
     });
   };
@@ -58,9 +83,9 @@ function Login() {
       </div>
 
       <div className="relative z-10 flex min-h-screen items-center justify-center px-5 py-10">
-        <div className="w-full max-w-[400px]">
+        <div className="w-full max-w-[430px]">
           {/* Brand Logo */}
-          <div className="mb-10 text-center">
+          <div className="mb-9 text-center">
             <div className="mx-auto mb-5 flex h-16 w-16 items-center justify-center overflow-hidden rounded-2xl">
               <img
                 src="/aura-logo.png"
@@ -80,13 +105,12 @@ function Login() {
 
           {/* Heading */}
           <div className="mb-7">
-            <h2 className="text-[26px] font-semibold tracking-tight text-white">
-              Welcome back
+            <h2 className="text-[25px] font-semibold tracking-tight">
+              Create your account
             </h2>
 
             <p className="mt-2 text-sm leading-6 text-slate-500">
-              Sign in to continue your conversation
-              with Aura AI.
+              Start your journey with Aura AI.
             </p>
           </div>
 
@@ -99,9 +123,39 @@ function Login() {
 
           {/* Form */}
           <form
-            onSubmit={handleLogin}
+            onSubmit={handleSignup}
             className="space-y-5"
           >
+            {/* Name */}
+            <div>
+              <label
+                htmlFor="name"
+                className="mb-2 block text-[13px] font-medium text-slate-300"
+              >
+                Full name
+              </label>
+
+              <div className="relative">
+                <User
+                  size={17}
+                  className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-slate-500"
+                />
+
+                <input
+                  id="name"
+                  type="text"
+                  value={name}
+                  onChange={(e) =>
+                    setName(e.target.value)
+                  }
+                  placeholder="Enter your name"
+                  autoComplete="name"
+                  required
+                  className="h-12 w-full rounded-xl border border-[#3b3b3b] bg-[#212121] pl-11 pr-4 text-[14px] text-white outline-none transition placeholder:text-slate-600 hover:border-[#4a4a4a] focus:border-violet-500/70 focus:ring-4 focus:ring-violet-500/10"
+                />
+              </div>
+            </div>
+
             {/* Email */}
             <div>
               <label
@@ -134,26 +188,12 @@ function Login() {
 
             {/* Password */}
             <div>
-              <div className="mb-2 flex items-center justify-between">
-                <label
-                  htmlFor="password"
-                  className="text-[13px] font-medium text-slate-300"
-                >
-                  Password
-                </label>
-
-                <button
-                  type="button"
-                  onClick={() =>
-                    alert(
-                      "Password reset will be added later."
-                    )
-                  }
-                  className="text-[12px] text-violet-400 transition hover:text-violet-300"
-                >
-                  Forgot password?
-                </button>
-              </div>
+              <label
+                htmlFor="password"
+                className="mb-2 block text-[13px] font-medium text-slate-300"
+              >
+                Password
+              </label>
 
               <div className="relative">
                 <Lock
@@ -172,8 +212,9 @@ function Login() {
                   onChange={(e) =>
                     setPassword(e.target.value)
                   }
-                  placeholder="Enter your password"
-                  autoComplete="current-password"
+                  placeholder="Create a password"
+                  autoComplete="new-password"
+                  minLength={6}
                   required
                   className="h-12 w-full rounded-xl border border-[#3b3b3b] bg-[#212121] pl-11 pr-11 text-[14px] text-white outline-none transition placeholder:text-slate-600 hover:border-[#4a4a4a] focus:border-violet-500/70 focus:ring-4 focus:ring-violet-500/10"
                 />
@@ -199,12 +240,68 @@ function Login() {
               </div>
             </div>
 
-            {/* Login */}
+            {/* Confirm Password */}
+            <div>
+              <label
+                htmlFor="confirmPassword"
+                className="mb-2 block text-[13px] font-medium text-slate-300"
+              >
+                Confirm password
+              </label>
+
+              <div className="relative">
+                <Lock
+                  size={17}
+                  className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-slate-500"
+                />
+
+                <input
+                  id="confirmPassword"
+                  type={
+                    showConfirmPassword
+                      ? "text"
+                      : "password"
+                  }
+                  value={confirmPassword}
+                  onChange={(e) =>
+                    setConfirmPassword(e.target.value)
+                  }
+                  placeholder="Confirm your password"
+                  autoComplete="new-password"
+                  minLength={6}
+                  required
+                  className="h-12 w-full rounded-xl border border-[#3b3b3b] bg-[#212121] pl-11 pr-11 text-[14px] text-white outline-none transition placeholder:text-slate-600 hover:border-[#4a4a4a] focus:border-violet-500/70 focus:ring-4 focus:ring-violet-500/10"
+                />
+
+                <button
+                  type="button"
+                  onClick={() =>
+                    setShowConfirmPassword(
+                      (prev) => !prev
+                    )
+                  }
+                  className="absolute right-3 top-1/2 -translate-y-1/2 rounded-lg p-1.5 text-slate-500 transition hover:bg-white/5 hover:text-slate-200"
+                  title={
+                    showConfirmPassword
+                      ? "Hide password"
+                      : "Show password"
+                  }
+                >
+                  {showConfirmPassword ? (
+                    <EyeOff size={17} />
+                  ) : (
+                    <Eye size={17} />
+                  )}
+                </button>
+              </div>
+            </div>
+
+            {/* Signup */}
             <button
               type="submit"
               className="group flex h-12 w-full items-center justify-center gap-2 rounded-xl bg-violet-600 text-[14px] font-semibold text-white shadow-lg shadow-violet-950/20 transition hover:bg-violet-500 active:scale-[0.99]"
             >
-              <span>Continue</span>
+              <span>Create account</span>
 
               <ArrowRight
                 size={17}
@@ -213,50 +310,22 @@ function Login() {
             </button>
           </form>
 
-          {/* Divider */}
-          <div className="my-7 flex items-center gap-3">
-            <div className="h-px flex-1 bg-[#303030]" />
-
-            <span className="text-[11px] uppercase tracking-wider text-slate-600">
-              or
-            </span>
-
-            <div className="h-px flex-1 bg-[#303030]" />
-          </div>
-
-          {/* Google */}
-          <button
-            type="button"
-            onClick={() =>
-              alert(
-                "Google authentication will be added later."
-              )
-            }
-            className="flex h-12 w-full items-center justify-center gap-3 rounded-xl border border-[#3b3b3b] bg-[#212121] text-[14px] font-medium text-slate-300 transition hover:bg-[#292929] hover:text-white"
-          >
-            <span className="text-base font-bold">
-              G
-            </span>
-
-            Continue with Google
-          </button>
-
-          {/* Signup */}
+          {/* Login */}
           <p className="mt-7 text-center text-[13px] text-slate-500">
-            Don't have an account?{" "}
+            Already have an account?{" "}
             <button
               type="button"
-              onClick={() => navigate("/signup")}
+              onClick={() => navigate("/login")}
               className="font-medium text-violet-400 transition hover:text-violet-300"
             >
-              Sign up
+              Login
             </button>
           </p>
 
           {/* Footer */}
           <p className="mt-8 text-center text-[10px] leading-5 text-slate-600">
-            By continuing, you agree to Aura AI's terms
-            and privacy policy.
+            By creating an account, you agree to Aura AI's
+            terms and privacy policy.
           </p>
         </div>
       </div>
@@ -264,4 +333,4 @@ function Login() {
   );
 }
 
-export default Login;
+export default Signup;
