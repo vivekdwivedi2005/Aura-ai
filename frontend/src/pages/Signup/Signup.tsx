@@ -8,6 +8,7 @@ import {
   User,
 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
+import { supabase } from "../../lib/supabase";
 
 function Signup() {
   const navigate = useNavigate();
@@ -25,9 +26,10 @@ function Signup() {
   const [showConfirmPassword, setShowConfirmPassword] =
     useState(false);
 
+  const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
-  const handleSignup = (
+  const handleSignup = async (
     e: React.FormEvent<HTMLFormElement>
   ) => {
     e.preventDefault();
@@ -40,9 +42,7 @@ function Signup() {
       !password.trim() ||
       !confirmPassword.trim()
     ) {
-      setError(
-        "Please fill in all the fields."
-      );
+      setError("Please fill in all the fields.");
       return;
     }
 
@@ -54,23 +54,61 @@ function Signup() {
     }
 
     if (password !== confirmPassword) {
-      setError(
-        "Passwords do not match."
-      );
+      setError("Passwords do not match.");
       return;
     }
 
-    /*
-     * MVP authentication
-     */
-    localStorage.setItem(
-      "aura-ai-authenticated",
-      "true"
-    );
+    setLoading(true);
 
-    navigate("/chat", {
-      replace: true,
-    });
+    try {
+      const {
+        data,
+        error: signupError,
+      } = await supabase.auth.signUp({
+        email: email.trim(),
+        password,
+        options: {
+          data: {
+            full_name: name.trim(),
+          },
+        },
+      });
+
+      if (signupError) {
+        setError(signupError.message);
+        return;
+      }
+
+      /*
+       * Depending on Supabase email confirmation
+       * settings, a session may or may not exist
+       * immediately after signup.
+       */
+
+      if (data.session) {
+        navigate("/chat", {
+          replace: true,
+        });
+
+        return;
+      }
+
+      /*
+       * Email confirmation is enabled:
+       * user needs to verify email first.
+       */
+      setError(
+        "Account created successfully. Please check your email and verify your account before logging in."
+      );
+    } catch (error) {
+      console.error("Signup error:", error);
+
+      setError(
+        "Unable to create your account right now. Please try again."
+      );
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
@@ -84,7 +122,7 @@ function Signup() {
 
       <div className="relative z-10 flex min-h-screen items-center justify-center px-5 py-10">
         <div className="w-full max-w-[430px]">
-          {/* Brand Logo */}
+          {/* Brand */}
           <div className="mb-9 text-center">
             <div className="mx-auto mb-5 flex h-16 w-16 items-center justify-center overflow-hidden rounded-2xl">
               <img
@@ -114,9 +152,9 @@ function Signup() {
             </p>
           </div>
 
-          {/* Error */}
+          {/* Error / Info */}
           {error && (
-            <div className="mb-5 rounded-xl border border-red-500/20 bg-red-500/10 px-4 py-3 text-sm text-red-400">
+            <div className="mb-5 rounded-xl border border-violet-500/20 bg-violet-500/10 px-4 py-3 text-sm leading-6 text-violet-300">
               {error}
             </div>
           )}
@@ -151,7 +189,8 @@ function Signup() {
                   placeholder="Enter your name"
                   autoComplete="name"
                   required
-                  className="h-12 w-full rounded-xl border border-[#3b3b3b] bg-[#212121] pl-11 pr-4 text-[14px] text-white outline-none transition placeholder:text-slate-600 hover:border-[#4a4a4a] focus:border-violet-500/70 focus:ring-4 focus:ring-violet-500/10"
+                  disabled={loading}
+                  className="h-12 w-full rounded-xl border border-[#3b3b3b] bg-[#212121] pl-11 pr-4 text-[14px] text-white outline-none transition placeholder:text-slate-600 hover:border-[#4a4a4a] focus:border-violet-500/70 focus:ring-4 focus:ring-violet-500/10 disabled:cursor-not-allowed disabled:opacity-60"
                 />
               </div>
             </div>
@@ -181,7 +220,8 @@ function Signup() {
                   placeholder="you@example.com"
                   autoComplete="email"
                   required
-                  className="h-12 w-full rounded-xl border border-[#3b3b3b] bg-[#212121] pl-11 pr-4 text-[14px] text-white outline-none transition placeholder:text-slate-600 hover:border-[#4a4a4a] focus:border-violet-500/70 focus:ring-4 focus:ring-violet-500/10"
+                  disabled={loading}
+                  className="h-12 w-full rounded-xl border border-[#3b3b3b] bg-[#212121] pl-11 pr-4 text-[14px] text-white outline-none transition placeholder:text-slate-600 hover:border-[#4a4a4a] focus:border-violet-500/70 focus:ring-4 focus:ring-violet-500/10 disabled:cursor-not-allowed disabled:opacity-60"
                 />
               </div>
             </div>
@@ -216,7 +256,8 @@ function Signup() {
                   autoComplete="new-password"
                   minLength={6}
                   required
-                  className="h-12 w-full rounded-xl border border-[#3b3b3b] bg-[#212121] pl-11 pr-11 text-[14px] text-white outline-none transition placeholder:text-slate-600 hover:border-[#4a4a4a] focus:border-violet-500/70 focus:ring-4 focus:ring-violet-500/10"
+                  disabled={loading}
+                  className="h-12 w-full rounded-xl border border-[#3b3b3b] bg-[#212121] pl-11 pr-11 text-[14px] text-white outline-none transition placeholder:text-slate-600 hover:border-[#4a4a4a] focus:border-violet-500/70 focus:ring-4 focus:ring-violet-500/10 disabled:cursor-not-allowed disabled:opacity-60"
                 />
 
                 <button
@@ -224,7 +265,8 @@ function Signup() {
                   onClick={() =>
                     setShowPassword((prev) => !prev)
                   }
-                  className="absolute right-3 top-1/2 -translate-y-1/2 rounded-lg p-1.5 text-slate-500 transition hover:bg-white/5 hover:text-slate-200"
+                  disabled={loading}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 rounded-lg p-1.5 text-slate-500 transition hover:bg-white/5 hover:text-slate-200 disabled:opacity-40"
                   title={
                     showPassword
                       ? "Hide password"
@@ -264,13 +306,16 @@ function Signup() {
                   }
                   value={confirmPassword}
                   onChange={(e) =>
-                    setConfirmPassword(e.target.value)
+                    setConfirmPassword(
+                      e.target.value
+                    )
                   }
                   placeholder="Confirm your password"
                   autoComplete="new-password"
                   minLength={6}
                   required
-                  className="h-12 w-full rounded-xl border border-[#3b3b3b] bg-[#212121] pl-11 pr-11 text-[14px] text-white outline-none transition placeholder:text-slate-600 hover:border-[#4a4a4a] focus:border-violet-500/70 focus:ring-4 focus:ring-violet-500/10"
+                  disabled={loading}
+                  className="h-12 w-full rounded-xl border border-[#3b3b3b] bg-[#212121] pl-11 pr-11 text-[14px] text-white outline-none transition placeholder:text-slate-600 hover:border-[#4a4a4a] focus:border-violet-500/70 focus:ring-4 focus:ring-violet-500/10 disabled:cursor-not-allowed disabled:opacity-60"
                 />
 
                 <button
@@ -280,7 +325,8 @@ function Signup() {
                       (prev) => !prev
                     )
                   }
-                  className="absolute right-3 top-1/2 -translate-y-1/2 rounded-lg p-1.5 text-slate-500 transition hover:bg-white/5 hover:text-slate-200"
+                  disabled={loading}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 rounded-lg p-1.5 text-slate-500 transition hover:bg-white/5 hover:text-slate-200 disabled:opacity-40"
                   title={
                     showConfirmPassword
                       ? "Hide password"
@@ -296,17 +342,24 @@ function Signup() {
               </div>
             </div>
 
-            {/* Signup */}
+            {/* Create Account */}
             <button
               type="submit"
-              className="group flex h-12 w-full items-center justify-center gap-2 rounded-xl bg-violet-600 text-[14px] font-semibold text-white shadow-lg shadow-violet-950/20 transition hover:bg-violet-500 active:scale-[0.99]"
+              disabled={loading}
+              className="group flex h-12 w-full items-center justify-center gap-2 rounded-xl bg-violet-600 text-[14px] font-semibold text-white shadow-lg shadow-violet-950/20 transition hover:bg-violet-500 active:scale-[0.99] disabled:cursor-not-allowed disabled:opacity-60"
             >
-              <span>Create account</span>
+              <span>
+                {loading
+                  ? "Creating account..."
+                  : "Create account"}
+              </span>
 
-              <ArrowRight
-                size={17}
-                className="transition-transform group-hover:translate-x-0.5"
-              />
+              {!loading && (
+                <ArrowRight
+                  size={17}
+                  className="transition-transform group-hover:translate-x-0.5"
+                />
+              )}
             </button>
           </form>
 

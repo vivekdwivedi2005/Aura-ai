@@ -5,6 +5,7 @@ import Sidebar, {
 import ChatWindow from "../../components/chat/ChatWindow";
 import ChatInput from "../../components/chat/ChatInput";
 import { askGemini } from "../../services/gemini";
+import { supabase } from "../../lib/supabase";
 
 export type ChatMessage = {
   sender: "user" | "ai";
@@ -13,12 +14,19 @@ export type ChatMessage = {
 
 type Chat = {
   id: string;
+  user_id: string;
   title: string;
   messages: ChatMessage[];
+  created_at: string;
 };
 
-const CHATS_STORAGE_KEY = "aura-ai-chats";
-const ACTIVE_CHAT_STORAGE_KEY = "aura-ai-active-chat";
+type SupabaseUser = {
+  id: string;
+  email?: string;
+};
+
+const ACTIVE_CHAT_STORAGE_PREFIX =
+  "aura-ai-active-chat-";
 
 const defaultMessages: ChatMessage[] = [
   {
@@ -27,151 +35,318 @@ const defaultMessages: ChatMessage[] = [
   },
 ];
 
-const createChat = (): Chat => ({
-  id: crypto.randomUUID(),
-  title: "New Chat",
-  messages: [...defaultMessages],
-});
-
-function loadChats(): Chat[] {
-  try {
-    const savedChats = localStorage.getItem(CHATS_STORAGE_KEY);
-
-    if (!savedChats) {
-      return [createChat()];
-    }
-
-    const parsedChats = JSON.parse(savedChats);
-
-    if (!Array.isArray(parsedChats)) {
-      return [createChat()];
-    }
-
-    if (parsedChats.length === 0) {
-      return [createChat()];
-    }
-
-    return parsedChats;
-  } catch (error) {
-    console.error("Failed to load chats:", error);
-    return [createChat()];
-  }
-}
-
-function loadActiveChatId(): string {
-  try {
-    return (
-      localStorage.getItem(ACTIVE_CHAT_STORAGE_KEY) || ""
-    );
-  } catch {
-    return "";
-  }
-}
-
 function Chat() {
-  const [chats, setChats] = useState<Chat[]>(loadChats);
+  const [chats, setChats] = useState<Chat[]>([]);
   const [activeChatId, setActiveChatId] =
-    useState<string>(loadActiveChatId);
-
+    useState<string>("");
   const [isTyping, setIsTyping] = useState(false);
+  const [isLoadingChats, setIsLoadingChats] =
+    useState(true);
 
-  /* -----------------------------------------
-     Make sure an active chat exists
-  ----------------------------------------- */
-
-  useEffect(() => {
-    if (chats.length === 0) {
-      const newChat = createChat();
-
-      setChats([newChat]);
-      setActiveChatId(newChat.id);
-
-      return;
-    }
-
-    const activeExists = chats.some(
-      (chat) => chat.id === activeChatId
-    );
-
-    if (!activeExists) {
-      setActiveChatId(chats[0].id);
-    }
-  }, [chats, activeChatId]);
-
-  /* -----------------------------------------
-     Save chats
-  ----------------------------------------- */
+  /*
+   * =========================================
+   * LOAD USER CHATS
+   * =========================================
+   */
 
   useEffect(() => {
-    try {
-      localStorage.setItem(
-        CHATS_STORAGE_KEY,
-        JSON.stringify(chats)
-      );
-    } catch (error) {
-      console.error(
-        "Failed to save chats to localStorage:",
-        error
-      );
-    }
-  }, [chats]);
+    let mounted = true;
 
-  /* -----------------------------------------
-     Save active chat
-  ----------------------------------------- */
+    const loadChats = async () => {
+      setIsLoadingChats(true);
 
-  useEffect(() => {
-    try {
-      if (activeChatId) {
-        localStorage.setItem(
-          ACTIVE_CHAT_STORAGE_KEY,
-          activeChatId
+      try {
+        /*
+         * Get currently authenticated user
+         */
+        const {
+          data: { user },
+          error: userError,
+        } = await supabase.auth.getUser();
+
+        if (userError || !user) {
+          console.error(
+            "Unable to get current user:",
+            userError
+          );
+
+          if (mounted) {
+            setChats([]);
+            setActiveChatId("");
+            setIsLoadingChats(false);
+          }
+
+          return;
+        }
+
+        const currentUser =
+          user as SupabaseUser;
+
+        /*
+         * Remove old browser-only chat history.
+         *
+         * This prevents old localStorage chats
+         * from appearing for different users.
+         */
+        localStorage.removeItem(
+          "aura-ai-chats"
         );
+
+        /*
+         * Fetch this user's chats only.
+         *
+         * RLS on Supabase guarantees that
+         * auth.uid() can only access rows
+         * belonging to this user.
+         */
+        const {
+          data,
+          error,
+        } = await supabase
+          .from("chats")
+          .select(
+            "id,user_id,title,messages,created_at"
+          )
+          .eq("user_id", currentUser.id)
+          .order("created_at", {
+            ascending: false,
+          });
+
+        if (error) {
+          throw error;
+        }
+
+        let loadedChats: Chat[] =
+          (data || []).map((chat) => ({
+            id: chat.id,
+            user_id: chat.user_id,
+            title: chat.title,
+            messages: Array.isArray(chat.messages)
+              ? chat.messages
+              : defaultMessages,
+            created_at: chat.created_at,
+          }));
+
+        /*
+         * If user has no chats, create first chat.
+         */
+        if (loadedChats.length === 0) {
+          const {
+            data: newChat,
+            error: createError,
+          } = await supabase
+            .from("chats")
+            .insert({
+              user_id: currentUser.id,
+              title: "New Chat",
+              messages: defaultMessages,
+            })
+            .select()
+            .single();
+
+          if (createError) {
+            throw createError;
+          }
+
+          loadedChats = [
+            {
+              id: newChat.id,
+              user_id: newChat.user_id,
+              title: newChat.title,
+              messages: Array.isArray(
+                newChat.messages
+              )
+                ? newChat.messages
+                : defaultMessages,
+              created_at: newChat.created_at,
+            },
+          ];
+        }
+
+        if (!mounted) return;
+
+        setChats(loadedChats);
+
+        /*
+         * Restore previously active chat
+         * for this specific user.
+         */
+        const activeStorageKey =
+          `${ACTIVE_CHAT_STORAGE_PREFIX}${currentUser.id}`;
+
+        const savedActiveChat =
+          localStorage.getItem(
+            activeStorageKey
+          );
+
+        const savedChatExists =
+          loadedChats.some(
+            (chat) =>
+              chat.id === savedActiveChat
+          );
+
+        if (savedChatExists && savedActiveChat) {
+          setActiveChatId(savedActiveChat);
+        } else {
+          setActiveChatId(
+            loadedChats[0].id
+          );
+        }
+      } catch (error) {
+        console.error(
+          "Failed to load chats:",
+          error
+        );
+
+        if (mounted) {
+          alert(
+            "Unable to load your conversations right now."
+          );
+        }
+      } finally {
+        if (mounted) {
+          setIsLoadingChats(false);
+        }
       }
-    } catch (error) {
-      console.error(
-        "Failed to save active chat:",
-        error
+    };
+
+    loadChats();
+
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
+  /*
+   * =========================================
+   * SAVE ACTIVE CHAT ID
+   * =========================================
+   */
+
+  useEffect(() => {
+    if (!activeChatId) return;
+
+    const saveActiveChat = async () => {
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+
+      if (!user) return;
+
+      localStorage.setItem(
+        `${ACTIVE_CHAT_STORAGE_PREFIX}${user.id}`,
+        activeChatId
       );
-    }
+    };
+
+    saveActiveChat();
   }, [activeChatId]);
 
-  /* -----------------------------------------
-     Active chat
-  ----------------------------------------- */
+  /*
+   * =========================================
+   * ACTIVE CHAT
+   * =========================================
+   */
 
   const activeChat =
-    chats.find((chat) => chat.id === activeChatId) ||
-    chats[0];
+    chats.find(
+      (chat) => chat.id === activeChatId
+    ) || chats[0];
 
   const messages =
     activeChat?.messages || defaultMessages;
 
-  /* -----------------------------------------
-     NEW CHAT
-     No artificial limit
-  ----------------------------------------- */
+  /*
+   * =========================================
+   * NEW CHAT
+   * =========================================
+   */
 
-  const handleNewChat = () => {
-    const newChat = createChat();
+  const handleNewChat = async () => {
+    if (isTyping) return;
 
-    setChats((prev) => [newChat, ...prev]);
-    setActiveChatId(newChat.id);
+    try {
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+
+      if (!user) {
+        navigateToLogin();
+        return;
+      }
+
+      const {
+        data: newChat,
+        error,
+      } = await supabase
+        .from("chats")
+        .insert({
+          user_id: user.id,
+          title: "New Chat",
+          messages: defaultMessages,
+        })
+        .select()
+        .single();
+
+      if (error) {
+        throw error;
+      }
+
+      const formattedChat: Chat = {
+        id: newChat.id,
+        user_id: newChat.user_id,
+        title: newChat.title,
+        messages: Array.isArray(
+          newChat.messages
+        )
+          ? newChat.messages
+          : defaultMessages,
+        created_at: newChat.created_at,
+      };
+
+      setChats((prev) => [
+        formattedChat,
+        ...prev,
+      ]);
+
+      setActiveChatId(formattedChat.id);
+    } catch (error) {
+      console.error(
+        "Create chat error:",
+        error
+      );
+
+      alert(
+        "Unable to create a new chat right now."
+      );
+    }
   };
 
-  /* -----------------------------------------
-     SELECT CHAT
-  ----------------------------------------- */
+  /*
+   * =========================================
+   * SELECT CHAT
+   * =========================================
+   */
 
-  const handleSelectChat = (chatId: string) => {
+  const handleSelectChat = (
+    chatId: string
+  ) => {
+    if (isTyping) return;
+
     setActiveChatId(chatId);
   };
 
-  /* -----------------------------------------
-     DELETE CHAT
-  ----------------------------------------- */
+  /*
+   * =========================================
+   * DELETE CHAT
+   * =========================================
+   */
 
-  const handleDeleteChat = (chatId: string) => {
+  const handleDeleteChat = async (
+    chatId: string
+  ) => {
+    if (isTyping) return;
+
     const chatToDelete = chats.find(
       (chat) => chat.id === chatId
     );
@@ -184,100 +359,197 @@ function Chat() {
 
     if (!confirmed) return;
 
-    const remainingChats = chats.filter(
-      (chat) => chat.id !== chatId
-    );
+    try {
+      const {
+        error,
+      } = await supabase
+        .from("chats")
+        .delete()
+        .eq("id", chatId);
 
-    if (remainingChats.length === 0) {
-      const newChat = createChat();
+      if (error) {
+        throw error;
+      }
 
-      setChats([newChat]);
-      setActiveChatId(newChat.id);
+      const remainingChats =
+        chats.filter(
+          (chat) => chat.id !== chatId
+        );
 
-      return;
-    }
+      /*
+       * Don't allow user to have zero chats.
+       */
+      if (remainingChats.length === 0) {
+        const {
+          data: { user },
+        } = await supabase.auth.getUser();
 
-    setChats(remainingChats);
+        if (!user) {
+          navigateToLogin();
+          return;
+        }
 
-    if (chatId === activeChatId) {
-      setActiveChatId(remainingChats[0].id);
+        const {
+          data: newChat,
+          error: createError,
+        } = await supabase
+          .from("chats")
+          .insert({
+            user_id: user.id,
+            title: "New Chat",
+            messages: defaultMessages,
+          })
+          .select()
+          .single();
+
+        if (createError) {
+          throw createError;
+        }
+
+        const formattedChat: Chat = {
+          id: newChat.id,
+          user_id: newChat.user_id,
+          title: newChat.title,
+          messages: Array.isArray(
+            newChat.messages
+          )
+            ? newChat.messages
+            : defaultMessages,
+          created_at: newChat.created_at,
+        };
+
+        setChats([formattedChat]);
+        setActiveChatId(
+          formattedChat.id
+        );
+
+        return;
+      }
+
+      setChats(remainingChats);
+
+      if (chatId === activeChatId) {
+        setActiveChatId(
+          remainingChats[0].id
+        );
+      }
+    } catch (error) {
+      console.error(
+        "Delete chat error:",
+        error
+      );
+
+      alert(
+        "Unable to delete this chat right now."
+      );
     }
   };
 
-  /* -----------------------------------------
-     RENAME CHAT
-  ----------------------------------------- */
+  /*
+   * =========================================
+   * RENAME CHAT
+   * =========================================
+   */
 
-  const handleRenameChat = (
+  const handleRenameChat = async (
     chatId: string,
     title: string
   ) => {
-    const trimmedTitle = title.trim();
+    const cleanTitle = title.trim();
 
-    if (!trimmedTitle) return;
+    if (!cleanTitle) return;
 
-    setChats((prev) =>
-      prev.map((chat) =>
-        chat.id === chatId
-          ? {
-              ...chat,
-              title: trimmedTitle,
-            }
-          : chat
-      )
-    );
+    try {
+      const {
+        error,
+      } = await supabase
+        .from("chats")
+        .update({
+          title: cleanTitle,
+        })
+        .eq("id", chatId);
+
+      if (error) {
+        throw error;
+      }
+
+      setChats((prev) =>
+        prev.map((chat) =>
+          chat.id === chatId
+            ? {
+                ...chat,
+                title: cleanTitle,
+              }
+            : chat
+        )
+      );
+    } catch (error) {
+      console.error(
+        "Rename chat error:",
+        error
+      );
+
+      alert(
+        "Unable to rename this chat right now."
+      );
+    }
   };
 
-  /* -----------------------------------------
-     SEND MESSAGE
-  ----------------------------------------- */
+  /*
+   * =========================================
+   * SEND MESSAGE
+   * =========================================
+   */
 
-  const handleSend = async (text: string) => {
-    const trimmedText = text.trim();
-
-    if (!trimmedText || isTyping || !activeChat) {
+  const handleSend = async (
+    text: string
+  ) => {
+    if (
+      !text.trim() ||
+      isTyping ||
+      !activeChat
+    ) {
       return;
     }
 
-    const currentChatId = activeChat.id;
+    const cleanText = text.trim();
 
     const userMessage: ChatMessage = {
       sender: "user",
-      text: trimmedText,
+      text: cleanText,
     };
 
-    const conversationForGemini: ChatMessage[] = [
+    const updatedMessages: ChatMessage[] = [
       ...activeChat.messages,
       userMessage,
     ];
 
-    /* ---------------------------------------
-       Generate title automatically
-    --------------------------------------- */
-
-    let updatedTitle = activeChat.title;
+    /*
+     * Create title from first user message
+     */
+    let updatedTitle =
+      activeChat.title;
 
     if (
       activeChat.title === "New Chat" ||
       activeChat.messages.length === 1
     ) {
       updatedTitle =
-        trimmedText.length > 32
-          ? `${trimmedText.slice(0, 32)}...`
-          : trimmedText;
+        cleanText.length > 32
+          ? `${cleanText.slice(0, 32)}...`
+          : cleanText;
     }
 
-    /* ---------------------------------------
-       Immediately add user message
-    --------------------------------------- */
-
+    /*
+     * Immediately update UI
+     */
     setChats((prev) =>
       prev.map((chat) =>
-        chat.id === currentChatId
+        chat.id === activeChat.id
           ? {
               ...chat,
               title: updatedTitle,
-              messages: conversationForGemini,
+              messages: updatedMessages,
             }
           : chat
       )
@@ -286,47 +558,113 @@ function Chat() {
     setIsTyping(true);
 
     try {
+      /*
+       * Save user message to Supabase
+       */
+      const {
+        error: saveUserMessageError,
+      } = await supabase
+        .from("chats")
+        .update({
+          title: updatedTitle,
+          messages: updatedMessages,
+        })
+        .eq("id", activeChat.id);
+
+      if (saveUserMessageError) {
+        throw saveUserMessageError;
+      }
+
+      /*
+       * Ask Gemini
+       */
       const reply = await askGemini(
-        conversationForGemini
+        updatedMessages
       );
 
-      /* Add only AI response */
+      const aiMessage: ChatMessage = {
+        sender: "ai",
+        text: reply,
+      };
+
+      const finalMessages: ChatMessage[] = [
+        ...updatedMessages,
+        aiMessage,
+      ];
+
+      /*
+       * Save AI response to Supabase
+       */
+      const {
+        error: saveAIMessageError,
+      } = await supabase
+        .from("chats")
+        .update({
+          title: updatedTitle,
+          messages: finalMessages,
+        })
+        .eq("id", activeChat.id);
+
+      if (saveAIMessageError) {
+        throw saveAIMessageError;
+      }
+
+      /*
+       * Update UI
+       */
       setChats((prev) =>
         prev.map((chat) =>
-          chat.id === currentChatId
+          chat.id === activeChat.id
             ? {
                 ...chat,
-                messages: [
-                  ...chat.messages,
-                  {
-                    sender: "ai",
-                    text: reply,
-                  },
-                ],
+                title: updatedTitle,
+                messages: finalMessages,
               }
             : chat
         )
       );
     } catch (error) {
-      console.error("Chat error:", error);
+      console.error(
+        "Chat error:",
+        error
+      );
 
-      const errorMessage =
-        error instanceof Error
-          ? error.message
-          : "❌ Something went wrong while contacting Aura AI.";
+      const errorMessage: ChatMessage = {
+        sender: "ai",
+        text: "❌ Something went wrong while contacting Aura AI.",
+      };
+
+      const errorMessages: ChatMessage[] = [
+        ...updatedMessages,
+        errorMessage,
+      ];
+
+      /*
+       * Try to save the error message too.
+       */
+      await supabase
+        .from("chats")
+        .update({
+          title: updatedTitle,
+          messages: errorMessages,
+        })
+        .eq("id", activeChat.id)
+        .then(({ error }) => {
+          if (error) {
+            console.error(
+              "Failed to save error message:",
+              error
+            );
+          }
+        });
 
       setChats((prev) =>
         prev.map((chat) =>
-          chat.id === currentChatId
+          chat.id === activeChat.id
             ? {
                 ...chat,
-                messages: [
-                  ...chat.messages,
-                  {
-                    sender: "ai",
-                    text: errorMessage,
-                  },
-                ],
+                title: updatedTitle,
+                messages: errorMessages,
               }
             : chat
         )
@@ -336,60 +674,100 @@ function Chat() {
     }
   };
 
-  /* -----------------------------------------
-     Sidebar data
-  ----------------------------------------- */
+  /*
+   * =========================================
+   * SIDEBAR DATA
+   * =========================================
+   */
 
-  const sidebarChats: ChatHistoryItem[] = chats.map(
-    (chat) => ({
+  const sidebarChats: ChatHistoryItem[] =
+    chats.map((chat) => ({
       id: chat.id,
       title: chat.title,
-    })
-  );
+    }));
+
+  /*
+   * =========================================
+   * LOGIN FALLBACK
+   * =========================================
+   */
+
+  const navigateToLogin = () => {
+    window.location.href = "/login";
+  };
+
+  /*
+   * =========================================
+   * LOADING UI
+   * =========================================
+   */
+
+  if (isLoadingChats) {
+    return (
+      <div className="flex h-screen items-center justify-center bg-[#212121] text-white">
+        <div className="flex flex-col items-center gap-4">
+          <div className="h-9 w-9 animate-spin rounded-full border-2 border-[#3d3d3d] border-t-violet-500" />
+
+          <p className="text-sm text-slate-500">
+            Loading your conversations...
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  /*
+   * =========================================
+   * UI
+   * =========================================
+   */
 
   return (
-    <div className="flex h-screen min-h-0 w-full overflow-hidden bg-[#212121] text-white">
+    <div className="flex h-screen min-h-0 overflow-hidden bg-slate-950 text-white">
       {/* Sidebar */}
       <Sidebar
         chats={sidebarChats}
-        activeChatId={activeChat?.id || ""}
+        activeChatId={
+          activeChat?.id || ""
+        }
         onNewChat={handleNewChat}
         onSelectChat={handleSelectChat}
         onDeleteChat={handleDeleteChat}
         onRenameChat={handleRenameChat}
       />
 
-      {/* Main area */}
-      <div className="flex min-h-0 min-w-0 flex-1 flex-col">
-        {/* Chat */}
-        <div className="relative min-h-0 flex-1 overflow-hidden">
-          <ChatWindow messages={messages} />
+      {/* Main Chat */}
+      <div className="flex h-full min-h-0 flex-1 flex-col">
+        <div className="relative h-0 min-h-0 flex-1 overflow-hidden">
+          <ChatWindow
+            messages={messages}
+          />
 
-          {/* Typing indicator */}
+          {/* Typing Indicator */}
           {isTyping && (
-            <div className="pointer-events-none absolute bottom-4 left-1/2 z-20 w-full max-w-3xl -translate-x-1/2 px-4">
+            <div className="absolute bottom-6 left-10 z-10">
               <div className="flex items-center gap-3">
-                <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-slate-700 bg-[#292929]">
-                  <span className="text-sm text-violet-400">
-                    ✦
-                  </span>
+                <div className="flex h-10 w-10 items-center justify-center rounded-full border border-slate-700 bg-slate-800">
+                  🤖
                 </div>
 
-                <div className="rounded-2xl border border-slate-700 bg-[#2f2f2f] px-4 py-3 shadow-lg">
-                  <div className="flex items-center gap-1.5">
-                    <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-violet-400" />
+                <div className="rounded-3xl border border-slate-700 bg-slate-800 px-5 py-4">
+                  <div className="flex gap-2">
+                    <div className="h-2 w-2 animate-bounce rounded-full bg-violet-400" />
 
-                    <span
-                      className="h-1.5 w-1.5 animate-bounce rounded-full bg-violet-400"
+                    <div
+                      className="h-2 w-2 animate-bounce rounded-full bg-violet-400"
                       style={{
-                        animationDelay: "0.15s",
+                        animationDelay:
+                          "0.15s",
                       }}
                     />
 
-                    <span
-                      className="h-1.5 w-1.5 animate-bounce rounded-full bg-violet-400"
+                    <div
+                      className="h-2 w-2 animate-bounce rounded-full bg-violet-400"
                       style={{
-                        animationDelay: "0.3s",
+                        animationDelay:
+                          "0.3s",
                       }}
                     />
                   </div>
@@ -399,7 +777,7 @@ function Chat() {
           )}
         </div>
 
-        {/* Composer */}
+        {/* Input */}
         <div className="shrink-0">
           <ChatInput onSend={handleSend} />
         </div>

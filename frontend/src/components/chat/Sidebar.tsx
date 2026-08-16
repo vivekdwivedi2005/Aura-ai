@@ -5,8 +5,11 @@ import {
   Trash2,
   Check,
   X,
+  LogOut,
 } from "lucide-react";
 import { useState } from "react";
+import { useNavigate } from "react-router-dom";
+import { supabase } from "../../lib/supabase";
 
 export type ChatHistoryItem = {
   id: string;
@@ -30,11 +33,15 @@ function Sidebar({
   onDeleteChat,
   onRenameChat,
 }: SidebarProps) {
+  const navigate = useNavigate();
+
   const [editingChatId, setEditingChatId] =
     useState<string | null>(null);
 
   const [editingTitle, setEditingTitle] =
     useState("");
+
+  const [loggingOut, setLoggingOut] = useState(false);
 
   const startEditing = (
     chat: ChatHistoryItem
@@ -63,6 +70,51 @@ function Sidebar({
 
     onRenameChat(editingChatId, title);
     cancelEditing();
+  };
+
+  const handleLogout = async () => {
+    if (loggingOut) return;
+
+    const confirmed = window.confirm(
+      "Are you sure you want to logout?"
+    );
+
+    if (!confirmed) return;
+
+    setLoggingOut(true);
+
+    try {
+      const { error } = await supabase.auth.signOut();
+
+      if (error) {
+        console.error(
+          "Logout failed:",
+          error
+        );
+
+        alert(
+          "Unable to logout right now. Please try again."
+        );
+
+        setLoggingOut(false);
+        return;
+      }
+
+      navigate("/login", {
+        replace: true,
+      });
+    } catch (error) {
+      console.error(
+        "Logout error:",
+        error
+      );
+
+      alert(
+        "Unable to logout right now. Please try again."
+      );
+
+      setLoggingOut(false);
+    }
   };
 
   return (
@@ -108,7 +160,6 @@ function Sidebar({
           className="aura-new-chat"
         >
           <MessageSquarePlus size={18} />
-
           <span>New chat</span>
         </button>
       </div>
@@ -142,7 +193,6 @@ function Sidebar({
                     isActive ? "active" : ""
                   }`}
                 >
-                  {/* EDIT MODE */}
                   {isEditing ? (
                     <div className="aura-edit-row">
                       <input
@@ -187,7 +237,6 @@ function Sidebar({
                       </button>
                     </div>
                   ) : (
-                    /* NORMAL MODE */
                     <div className="aura-chat-row">
                       <button
                         type="button"
@@ -232,7 +281,7 @@ function Sidebar({
       </div>
 
       {/* =====================================
-          SETTINGS
+          BOTTOM ACTIONS
       ====================================== */}
 
       <div className="aura-sidebar-bottom">
@@ -241,8 +290,20 @@ function Sidebar({
           className="aura-settings"
         >
           <Settings size={17} />
-
           <span>Settings</span>
+        </button>
+
+        <button
+          type="button"
+          onClick={handleLogout}
+          disabled={loggingOut}
+          className="mt-1 flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-sm text-slate-400 transition hover:bg-red-500/10 hover:text-red-400 disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          <LogOut size={17} />
+
+          <span>
+            {loggingOut ? "Logging out..." : "Logout"}
+          </span>
         </button>
       </div>
     </aside>

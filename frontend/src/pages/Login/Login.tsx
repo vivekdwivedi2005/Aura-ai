@@ -7,6 +7,7 @@ import {
   Mail,
 } from "lucide-react";
 import { useLocation, useNavigate } from "react-router-dom";
+import { supabase } from "../../lib/supabase";
 
 function Login() {
   const navigate = useNavigate();
@@ -16,9 +17,10 @@ function Login() {
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] =
     useState(false);
+  const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
-  const handleLogin = (
+  const handleLogin = async (
     e: React.FormEvent<HTMLFormElement>
   ) => {
     e.preventDefault();
@@ -32,25 +34,39 @@ function Login() {
       return;
     }
 
-    /*
-     * MVP authentication
-     */
-    localStorage.setItem(
-      "aura-ai-authenticated",
-      "true"
-    );
+    setLoading(true);
 
-    const redirectPath =
-      location.state?.from || "/chat";
+    try {
+      const { error: loginError } =
+        await supabase.auth.signInWithPassword({
+          email: email.trim(),
+          password,
+        });
 
-    navigate(redirectPath, {
-      replace: true,
-    });
+      if (loginError) {
+        setError(loginError.message);
+        return;
+      }
+
+      const redirectPath =
+        location.state?.from || "/chat";
+
+      navigate(redirectPath, {
+        replace: true,
+      });
+    } catch (error) {
+      console.error("Login error:", error);
+
+      setError(
+        "Unable to sign in right now. Please try again."
+      );
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
     <main className="relative min-h-screen overflow-hidden bg-[#171717] text-white">
-      {/* Background */}
       <div className="pointer-events-none absolute inset-0">
         <div className="absolute left-1/2 top-[-180px] h-[420px] w-[420px] -translate-x-1/2 rounded-full bg-violet-600/[0.06] blur-[120px]" />
 
@@ -59,7 +75,6 @@ function Login() {
 
       <div className="relative z-10 flex min-h-screen items-center justify-center px-5 py-10">
         <div className="w-full max-w-[400px]">
-          {/* Brand Logo */}
           <div className="mb-10 text-center">
             <div className="mx-auto mb-5 flex h-16 w-16 items-center justify-center overflow-hidden rounded-2xl">
               <img
@@ -78,7 +93,6 @@ function Login() {
             </p>
           </div>
 
-          {/* Heading */}
           <div className="mb-7">
             <h2 className="text-[26px] font-semibold tracking-tight text-white">
               Welcome back
@@ -90,19 +104,16 @@ function Login() {
             </p>
           </div>
 
-          {/* Error */}
           {error && (
             <div className="mb-5 rounded-xl border border-red-500/20 bg-red-500/10 px-4 py-3 text-sm text-red-400">
               {error}
             </div>
           )}
 
-          {/* Form */}
           <form
             onSubmit={handleLogin}
             className="space-y-5"
           >
-            {/* Email */}
             <div>
               <label
                 htmlFor="email"
@@ -127,32 +138,20 @@ function Login() {
                   placeholder="you@example.com"
                   autoComplete="email"
                   required
-                  className="h-12 w-full rounded-xl border border-[#3b3b3b] bg-[#212121] pl-11 pr-4 text-[14px] text-white outline-none transition placeholder:text-slate-600 hover:border-[#4a4a4a] focus:border-violet-500/70 focus:ring-4 focus:ring-violet-500/10"
+                  disabled={loading}
+                  className="h-12 w-full rounded-xl border border-[#3b3b3b] bg-[#212121] pl-11 pr-4 text-[14px] text-white outline-none transition placeholder:text-slate-600 hover:border-[#4a4a4a] focus:border-violet-500/70 focus:ring-4 focus:ring-violet-500/10 disabled:cursor-not-allowed disabled:opacity-60"
                 />
               </div>
             </div>
 
-            {/* Password */}
             <div>
-              <div className="mb-2 flex items-center justify-between">
+              <div className="mb-2">
                 <label
                   htmlFor="password"
                   className="text-[13px] font-medium text-slate-300"
                 >
                   Password
                 </label>
-
-                <button
-                  type="button"
-                  onClick={() =>
-                    alert(
-                      "Password reset will be added later."
-                    )
-                  }
-                  className="text-[12px] text-violet-400 transition hover:text-violet-300"
-                >
-                  Forgot password?
-                </button>
               </div>
 
               <div className="relative">
@@ -175,7 +174,8 @@ function Login() {
                   placeholder="Enter your password"
                   autoComplete="current-password"
                   required
-                  className="h-12 w-full rounded-xl border border-[#3b3b3b] bg-[#212121] pl-11 pr-11 text-[14px] text-white outline-none transition placeholder:text-slate-600 hover:border-[#4a4a4a] focus:border-violet-500/70 focus:ring-4 focus:ring-violet-500/10"
+                  disabled={loading}
+                  className="h-12 w-full rounded-xl border border-[#3b3b3b] bg-[#212121] pl-11 pr-11 text-[14px] text-white outline-none transition placeholder:text-slate-600 hover:border-[#4a4a4a] focus:border-violet-500/70 focus:ring-4 focus:ring-violet-500/10 disabled:cursor-not-allowed disabled:opacity-60"
                 />
 
                 <button
@@ -183,12 +183,8 @@ function Login() {
                   onClick={() =>
                     setShowPassword((prev) => !prev)
                   }
-                  className="absolute right-3 top-1/2 -translate-y-1/2 rounded-lg p-1.5 text-slate-500 transition hover:bg-white/5 hover:text-slate-200"
-                  title={
-                    showPassword
-                      ? "Hide password"
-                      : "Show password"
-                  }
+                  disabled={loading}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 rounded-lg p-1.5 text-slate-500 transition hover:bg-white/5 hover:text-slate-200 disabled:opacity-40"
                 >
                   {showPassword ? (
                     <EyeOff size={17} />
@@ -199,21 +195,24 @@ function Login() {
               </div>
             </div>
 
-            {/* Login */}
             <button
               type="submit"
-              className="group flex h-12 w-full items-center justify-center gap-2 rounded-xl bg-violet-600 text-[14px] font-semibold text-white shadow-lg shadow-violet-950/20 transition hover:bg-violet-500 active:scale-[0.99]"
+              disabled={loading}
+              className="group flex h-12 w-full items-center justify-center gap-2 rounded-xl bg-violet-600 text-[14px] font-semibold text-white shadow-lg shadow-violet-950/20 transition hover:bg-violet-500 active:scale-[0.99] disabled:cursor-not-allowed disabled:opacity-60"
             >
-              <span>Continue</span>
+              <span>
+                {loading ? "Signing in..." : "Continue"}
+              </span>
 
-              <ArrowRight
-                size={17}
-                className="transition-transform group-hover:translate-x-0.5"
-              />
+              {!loading && (
+                <ArrowRight
+                  size={17}
+                  className="transition-transform group-hover:translate-x-0.5"
+                />
+              )}
             </button>
           </form>
 
-          {/* Divider */}
           <div className="my-7 flex items-center gap-3">
             <div className="h-px flex-1 bg-[#303030]" />
 
@@ -224,7 +223,6 @@ function Login() {
             <div className="h-px flex-1 bg-[#303030]" />
           </div>
 
-          {/* Google */}
           <button
             type="button"
             onClick={() =>
@@ -241,7 +239,6 @@ function Login() {
             Continue with Google
           </button>
 
-          {/* Signup */}
           <p className="mt-7 text-center text-[13px] text-slate-500">
             Don't have an account?{" "}
             <button
@@ -253,7 +250,6 @@ function Login() {
             </button>
           </p>
 
-          {/* Footer */}
           <p className="mt-8 text-center text-[10px] leading-5 text-slate-600">
             By continuing, you agree to Aura AI's terms
             and privacy policy.
