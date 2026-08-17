@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   ArrowRight,
   Eye,
@@ -15,10 +15,28 @@ function Login() {
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [showPassword, setShowPassword] =
-    useState(false);
+
+  const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+
+  /*
+   * Agar user already logged in hai aur /login open karta hai,
+   * to directly chat par bhej do.
+   */
+  useEffect(() => {
+    const checkSession = async () => {
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+
+      if (session) {
+        navigate("/chat", { replace: true });
+      }
+    };
+
+    checkSession();
+  }, [navigate]);
 
   const handleLogin = async (
     e: React.FormEvent<HTMLFormElement>
@@ -27,35 +45,55 @@ function Login() {
 
     setError("");
 
-    if (!email.trim() || !password.trim()) {
-      setError(
-        "Please enter your email and password."
-      );
+    const cleanEmail = email.trim();
+
+    if (!cleanEmail || !password) {
+      setError("Please enter your email and password.");
       return;
     }
 
     setLoading(true);
 
     try {
-      const { error: loginError } =
+      const { data, error: loginError } =
         await supabase.auth.signInWithPassword({
-          email: email.trim(),
+          email: cleanEmail,
           password,
         });
 
       if (loginError) {
-        setError(loginError.message);
+        console.error("Supabase login error:", loginError);
+
+        if (
+          loginError.message
+            .toLowerCase()
+            .includes("invalid login credentials")
+        ) {
+          setError("Invalid email or password.");
+        } else {
+          setError(loginError.message);
+        }
+
+        return;
+      }
+
+      if (!data.session) {
+        setError(
+          "Login could not be completed. Please try again."
+        );
         return;
       }
 
       const redirectPath =
-        location.state?.from || "/chat";
+        location.state?.from?.pathname ||
+        location.state?.from ||
+        "/chat";
 
       navigate(redirectPath, {
         replace: true,
       });
-    } catch (error) {
-      console.error("Login error:", error);
+    } catch (err) {
+      console.error("Login error:", err);
 
       setError(
         "Unable to sign in right now. Please try again."
@@ -67,14 +105,18 @@ function Login() {
 
   return (
     <main className="relative min-h-screen overflow-hidden bg-[#171717] text-white">
+      {/* Background */}
       <div className="pointer-events-none absolute inset-0">
         <div className="absolute left-1/2 top-[-180px] h-[420px] w-[420px] -translate-x-1/2 rounded-full bg-violet-600/[0.06] blur-[120px]" />
 
         <div className="absolute bottom-[-180px] right-[-100px] h-[360px] w-[360px] rounded-full bg-fuchsia-600/[0.05] blur-[110px]" />
       </div>
 
+      {/* Main */}
       <div className="relative z-10 flex min-h-screen items-center justify-center px-5 py-10">
         <div className="w-full max-w-[400px]">
+
+          {/* Brand */}
           <div className="mb-10 text-center">
             <div className="mx-auto mb-5 flex h-16 w-16 items-center justify-center overflow-hidden rounded-2xl">
               <img
@@ -93,6 +135,7 @@ function Login() {
             </p>
           </div>
 
+          {/* Heading */}
           <div className="mb-7">
             <h2 className="text-[26px] font-semibold tracking-tight text-white">
               Welcome back
@@ -104,16 +147,20 @@ function Login() {
             </p>
           </div>
 
+          {/* Error */}
           {error && (
-            <div className="mb-5 rounded-xl border border-red-500/20 bg-red-500/10 px-4 py-3 text-sm text-red-400">
+            <div className="mb-5 rounded-xl border border-red-500/20 bg-red-500/10 px-4 py-3 text-sm leading-5 text-red-400">
               {error}
             </div>
           )}
 
+          {/* Login Form */}
           <form
             onSubmit={handleLogin}
             className="space-y-5"
           >
+
+            {/* Email */}
             <div>
               <label
                 htmlFor="email"
@@ -144,15 +191,14 @@ function Login() {
               </div>
             </div>
 
+            {/* Password */}
             <div>
-              <div className="mb-2">
-                <label
-                  htmlFor="password"
-                  className="text-[13px] font-medium text-slate-300"
-                >
-                  Password
-                </label>
-              </div>
+              <label
+                htmlFor="password"
+                className="mb-2 block text-[13px] font-medium text-slate-300"
+              >
+                Password
+              </label>
 
               <div className="relative">
                 <Lock
@@ -181,10 +227,17 @@ function Login() {
                 <button
                   type="button"
                   onClick={() =>
-                    setShowPassword((prev) => !prev)
+                    setShowPassword(
+                      (prev) => !prev
+                    )
                   }
                   disabled={loading}
                   className="absolute right-3 top-1/2 -translate-y-1/2 rounded-lg p-1.5 text-slate-500 transition hover:bg-white/5 hover:text-slate-200 disabled:opacity-40"
+                  aria-label={
+                    showPassword
+                      ? "Hide password"
+                      : "Show password"
+                  }
                 >
                   {showPassword ? (
                     <EyeOff size={17} />
@@ -195,13 +248,16 @@ function Login() {
               </div>
             </div>
 
+            {/* Login Button */}
             <button
               type="submit"
               disabled={loading}
               className="group flex h-12 w-full items-center justify-center gap-2 rounded-xl bg-violet-600 text-[14px] font-semibold text-white shadow-lg shadow-violet-950/20 transition hover:bg-violet-500 active:scale-[0.99] disabled:cursor-not-allowed disabled:opacity-60"
             >
               <span>
-                {loading ? "Signing in..." : "Continue"}
+                {loading
+                  ? "Signing in..."
+                  : "Continue"}
               </span>
 
               {!loading && (
@@ -213,6 +269,7 @@ function Login() {
             </button>
           </form>
 
+          {/* Divider */}
           <div className="my-7 flex items-center gap-3">
             <div className="h-px flex-1 bg-[#303030]" />
 
@@ -223,6 +280,7 @@ function Login() {
             <div className="h-px flex-1 bg-[#303030]" />
           </div>
 
+          {/* Google */}
           <button
             type="button"
             onClick={() =>
@@ -239,21 +297,27 @@ function Login() {
             Continue with Google
           </button>
 
+          {/* Signup */}
           <p className="mt-7 text-center text-[13px] text-slate-500">
             Don't have an account?{" "}
+
             <button
               type="button"
-              onClick={() => navigate("/signup")}
+              onClick={() =>
+                navigate("/signup")
+              }
               className="font-medium text-violet-400 transition hover:text-violet-300"
             >
               Sign up
             </button>
           </p>
 
+          {/* Footer */}
           <p className="mt-8 text-center text-[10px] leading-5 text-slate-600">
-            By continuing, you agree to Aura AI's terms
-            and privacy policy.
+            By continuing, you agree to Aura AI's
+            terms and privacy policy.
           </p>
+
         </div>
       </div>
     </main>
