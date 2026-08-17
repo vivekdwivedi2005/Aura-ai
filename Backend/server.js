@@ -44,7 +44,7 @@ app.use(
                 return callback(null, true);
             }
 
-            // Allow Vercel preview/deployment URLs
+            // Allow Vercel preview URLs
             try {
                 const url = new URL(origin);
 
@@ -63,7 +63,10 @@ app.use(
         },
 
         methods: ["GET", "POST", "OPTIONS"],
-        allowedHeaders: ["Content-Type"],
+
+        allowedHeaders: [
+            "Content-Type",
+        ],
     })
 );
 
@@ -71,7 +74,11 @@ app.use(
    MIDDLEWARE
 ========================================= */
 
-app.use(express.json({ limit: "1mb" }));
+app.use(
+    express.json({
+        limit: "1mb",
+    })
+);
 
 /* =========================================
    GEMINI CLIENT
@@ -80,6 +87,102 @@ app.use(express.json({ limit: "1mb" }));
 const ai = new GoogleGenAI({
     apiKey: apiKey,
 });
+
+/* =========================================
+   AURA AI SYSTEM INSTRUCTION
+========================================= */
+
+const AURA_SYSTEM_INSTRUCTION = `
+You are Aura AI, a helpful, intelligent, friendly, and professional personal AI assistant.
+
+PERSONALITY:
+- Be natural, warm, and conversational.
+- Be helpful without being unnecessarily verbose.
+- Speak clearly and confidently.
+- Adapt your response length to the user's question.
+- If the user asks for a simple answer, keep it simple.
+- If the user asks for a detailed explanation, explain step by step.
+- Do not sound robotic.
+- Do not repeatedly introduce yourself unless it is relevant.
+
+UNDERSTANDING:
+- Understand the user's intent before answering.
+- Use the conversation history provided in the request to maintain context.
+- If the user refers to something discussed earlier in the conversation, use that context.
+- If something is unclear, ask a concise clarification question instead of guessing.
+
+ACCURACY:
+- Never intentionally make up facts.
+- If you are unsure about something, clearly say that you are unsure.
+- Do not claim that you performed an action that you did not perform.
+- Do not claim to have access to information that was not provided to you.
+
+PROGRAMMING:
+- When the user asks for code, provide clean and practical code.
+- Prefer complete replaceable code when the user explicitly asks for it.
+- Explain important changes briefly.
+- Preserve the user's existing architecture when modifying their project.
+
+CONVERSATION:
+- Remember the context available in the current conversation.
+- Answer follow-up questions naturally.
+- Avoid repeating information unnecessarily.
+- When helping with a project, focus on the user's current goal and avoid unnecessary changes.
+
+IMPORTANT:
+You are Aura AI.
+Your job is to help the user solve problems, learn, build projects, and have useful conversations.
+`;
+
+/* =========================================
+   MESSAGE PREPARATION
+========================================= */
+
+function prepareContents(messages) {
+    if (!Array.isArray(messages)) {
+        throw new Error(
+            "Messages must be an array."
+        );
+    }
+
+    if (messages.length === 0) {
+        throw new Error(
+            "Messages are required."
+        );
+    }
+
+    const contents = messages
+        .filter(function(message) {
+            return (
+                message &&
+                (
+                    message.sender === "user" ||
+                    message.sender === "ai"
+                ) &&
+                typeof message.text === "string" &&
+                message.text.trim().length > 0
+            );
+        })
+        .map(function(message) {
+            return {
+                role: message.sender === "user" ?
+                    "user" :
+                    "model",
+
+                parts: [{
+                    text: message.text.trim(),
+                }, ],
+            };
+        });
+
+    if (contents.length === 0) {
+        throw new Error(
+            "No valid messages were provided."
+        );
+    }
+
+    return contents;
+}
 
 /* =========================================
    GEMINI RETRY FUNCTION
@@ -91,11 +194,22 @@ async function generateWithRetry(
 ) {
     let lastError = null;
 
-    for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    for (
+        let attempt = 0; attempt <= maxRetries; attempt++
+    ) {
         try {
             const response =
                 await ai.models.generateContent({
-                    model: "gemini-3.6-flash",
+                    model: "gemini-3.5-flash-lite",
+
+                    config: {
+                        systemInstruction: AURA_SYSTEM_INSTRUCTION,
+
+                        thinkingConfig: {
+                            thinkingLevel: "minimal",
+                        },
+                    },
+
                     contents: contents,
                 });
 
@@ -103,21 +217,20 @@ async function generateWithRetry(
         } catch (error) {
             lastError = error;
 
-            const status = error && error.status;
+            const status =
+                error && error.status;
 
             console.error(
-                `Gemini attempt ${attempt + 1} failed with status:`,
+                `Gemini attempt ${
+                    attempt + 1
+                } failed with status:`,
                 status
             );
 
             /*
              * Retry only temporary errors.
-             *
-             * 429 = rate limit / quota
-             * 500 = server error
-             * 502 = bad gateway
-             * 503 = service temporarily unavailable
              */
+
             const shouldRetry =
                 status === 429 ||
                 status === 500 ||
@@ -131,6 +244,7 @@ async function generateWithRetry(
             /*
              * Don't retry after final attempt.
              */
+
             if (attempt === maxRetries) {
                 break;
             }
@@ -142,17 +256,23 @@ async function generateWithRetry(
              * Attempt 2 → 2 sec
              * Attempt 3 → 4 sec
              */
+
             const delay =
-                1000 * Math.pow(2, attempt);
+                1000 *
+                Math.pow(2, attempt);
 
             console.log(
                 `⏳ Retrying Gemini request in ${
-          delay / 1000
-        } seconds...`
+                    delay / 1000
+                } seconds...`
             );
 
-            await new Promise((resolve) =>
-                setTimeout(resolve, delay)
+            await new Promise(
+                (resolve) =>
+                setTimeout(
+                    resolve,
+                    delay
+                )
             );
         }
     }
@@ -175,164 +295,141 @@ app.get("/", function(req, res) {
    CHAT API
 ========================================= */
 
-app.post("/api/chat", async function(req, res) {
-    try {
-        const messages = req.body.messages;
+app.post(
+    "/api/chat",
+    async function(req, res) {
+        try {
+            const messages =
+                req.body.messages;
 
-        /* Validate request */
+            /* =======================================
+               VALIDATE + PREPARE
+            ======================================= */
 
-        if (!Array.isArray(messages)) {
-            return res.status(400).json({
-                success: false,
-                error: "Messages must be an array.",
-            });
-        }
+            const contents =
+                prepareContents(messages);
 
-        if (messages.length === 0) {
-            return res.status(400).json({
-                success: false,
-                error: "Messages are required.",
-            });
-        }
+            /* =======================================
+               GEMINI REQUEST
+            ======================================= */
 
-        /* =======================================
-           Convert Aura messages → Gemini format
-        ======================================= */
-
-        const contents = messages
-            .filter(function(message) {
-                return (
-                    message &&
-                    (message.sender === "user" ||
-                        message.sender === "ai") &&
-                    typeof message.text === "string" &&
-                    message.text.trim().length > 0
+            const response =
+                await generateWithRetry(
+                    contents
                 );
-            })
-            .map(function(message) {
-                return {
-                    role: message.sender === "user" ?
-                        "user" :
-                        "model",
 
-                    parts: [{
-                        text: message.text.trim(),
-                    }, ],
-                };
+            /* =======================================
+               GET RESPONSE TEXT
+            ======================================= */
+
+            const reply =
+                response &&
+                typeof response.text === "string" ?
+                response.text.trim() :
+                "";
+
+            /* =======================================
+               EMPTY RESPONSE
+            ======================================= */
+
+            if (!reply) {
+                return res.status(502).json({
+                    success: false,
+                    error: "Gemini returned an empty response.",
+                });
+            }
+
+            /* =======================================
+               SUCCESS
+            ======================================= */
+
+            return res.status(200).json({
+                success: true,
+                reply: reply,
             });
+        } catch (error) {
+            console.error(
+                "❌ Gemini API Error:",
+                error
+            );
 
-        if (contents.length === 0) {
-            return res.status(400).json({
+            const status =
+                error && error.status;
+
+            /* =======================================
+               QUOTA / RATE LIMIT
+            ======================================= */
+
+            if (status === 429) {
+                return res.status(429).json({
+                    success: false,
+                    error: "⚠️ Aura AI has reached the Gemini API quota or rate limit. Please try again later.",
+                });
+            }
+
+            /* =======================================
+               TEMPORARY UNAVAILABLE
+            ======================================= */
+
+            if (status === 503) {
+                return res.status(503).json({
+                    success: false,
+                    error: "⚠️ Gemini is temporarily unavailable because of high demand. Please try again in a moment.",
+                });
+            }
+
+            /* =======================================
+               SERVER ERRORS
+            ======================================= */
+
+            if (
+                status === 500 ||
+                status === 502
+            ) {
+                return res.status(502).json({
+                    success: false,
+                    error: "⚠️ Gemini is temporarily having a server problem. Please try again.",
+                });
+            }
+
+            /* =======================================
+               AUTHENTICATION
+            ======================================= */
+
+            if (
+                status === 401 ||
+                status === 403
+            ) {
+                return res.status(status).json({
+                    success: false,
+                    error: "❌ Gemini API authentication failed. Please check the API key.",
+                });
+            }
+
+            /* =======================================
+               MODEL NOT FOUND
+            ======================================= */
+
+            if (status === 404) {
+                return res.status(404).json({
+                    success: false,
+                    error: "❌ The configured Gemini model is unavailable.",
+                });
+            }
+
+            /* =======================================
+               GENERIC ERROR
+            ======================================= */
+
+            return res.status(500).json({
                 success: false,
-                error: "No valid messages were provided.",
+                error: error instanceof Error ?
+                    error.message :
+                    "❌ Failed to get response from Gemini.",
             });
         }
-
-        /* =======================================
-           Gemini request with retry
-        ======================================= */
-
-        const response = await generateWithRetry(
-            contents
-        );
-
-        const reply =
-            response &&
-            typeof response.text === "string" ?
-            response.text.trim() :
-            "";
-
-        /* Empty response */
-
-        if (!reply) {
-            return res.status(502).json({
-                success: false,
-                error: "Gemini returned an empty response.",
-            });
-        }
-
-        /* =======================================
-           Success
-        ======================================= */
-
-        return res.status(200).json({
-            success: true,
-            reply: reply,
-        });
-    } catch (error) {
-        console.error(
-            "❌ Gemini API Error:",
-            error
-        );
-
-        const status =
-            error && error.status;
-
-        /* =======================================
-           QUOTA / RATE LIMIT
-        ======================================= */
-
-        if (status === 429) {
-            return res.status(429).json({
-                success: false,
-                error: "⚠️ Aura AI has reached the Gemini API quota or rate limit. Please try again later.",
-            });
-        }
-
-        /* =======================================
-           TEMPORARY UNAVAILABLE
-        ======================================= */
-
-        if (status === 503) {
-            return res.status(503).json({
-                success: false,
-                error: "⚠️ Gemini is temporarily unavailable because of high demand. Please try again in a moment.",
-            });
-        }
-
-        /* =======================================
-           SERVER ERRORS
-        ======================================= */
-
-        if (status === 500 || status === 502) {
-            return res.status(502).json({
-                success: false,
-                error: "⚠️ Gemini is temporarily having a server problem. Please try again.",
-            });
-        }
-
-        /* =======================================
-           AUTHENTICATION
-        ======================================= */
-
-        if (status === 401 || status === 403) {
-            return res.status(status).json({
-                success: false,
-                error: "❌ Gemini API authentication failed. Please check the API key.",
-            });
-        }
-
-        /* =======================================
-           MODEL NOT FOUND
-        ======================================= */
-
-        if (status === 404) {
-            return res.status(404).json({
-                success: false,
-                error: "❌ The configured Gemini model is unavailable.",
-            });
-        }
-
-        /* =======================================
-           GENERIC ERROR
-        ======================================= */
-
-        return res.status(500).json({
-            success: false,
-            error: "❌ Failed to get response from Gemini.",
-        });
     }
-});
+);
 
 /* =========================================
    404 ROUTE
@@ -349,14 +446,18 @@ app.use(function(req, res) {
    START SERVER
 ========================================= */
 
-app.listen(PORT, "0.0.0.0", function() {
-    console.log(
-        "🚀 Aura AI Backend running on port " +
-        PORT
-    );
+app.listen(
+    PORT,
+    "0.0.0.0",
+    function() {
+        console.log(
+            "🚀 Aura AI Backend running on port " +
+            PORT
+        );
 
-    console.log(
-        "🌐 Aura AI API ready at http://localhost:" +
-        PORT
-    );
-});
+        console.log(
+            "🌐 Aura AI API ready at http://localhost:" +
+            PORT
+        );
+    }
+);
