@@ -1,6 +1,7 @@
 const express = require("express");
 const cors = require("cors");
 const dotenv = require("dotenv");
+const multer = require("multer");
 const { GoogleGenAI } = require("@google/genai");
 
 dotenv.config();
@@ -34,6 +35,7 @@ const allowedExactOrigins = [
 app.use(
     cors({
         origin: function(origin, callback) {
+
             // Requests without an Origin header
             if (!origin) {
                 return callback(null, true);
@@ -48,21 +50,32 @@ app.use(
             try {
                 const url = new URL(origin);
 
-                if (url.hostname.endsWith(".vercel.app")) {
+                if (
+                    url.hostname.endsWith(".vercel.app")
+                ) {
                     return callback(null, true);
                 }
+
             } catch (error) {
                 return callback(
-                    new Error("Invalid request origin.")
+                    new Error(
+                        "Invalid request origin."
+                    )
                 );
             }
 
             return callback(
-                new Error("Origin not allowed by CORS.")
+                new Error(
+                    "Origin not allowed by CORS."
+                )
             );
         },
 
-        methods: ["GET", "POST", "OPTIONS"],
+        methods: [
+            "GET",
+            "POST",
+            "OPTIONS",
+        ],
 
         allowedHeaders: [
             "Content-Type",
@@ -71,7 +84,7 @@ app.use(
 );
 
 /* =========================================
-   MIDDLEWARE
+   JSON MIDDLEWARE
 ========================================= */
 
 app.use(
@@ -79,6 +92,41 @@ app.use(
         limit: "1mb",
     })
 );
+
+/* =========================================
+   PDF UPLOAD CONFIGURATION
+========================================= */
+
+const upload = multer({
+    storage: multer.memoryStorage(),
+
+    limits: {
+        fileSize: 10 * 1024 * 1024, // 10 MB
+    },
+
+    fileFilter: function(
+        req,
+        file,
+        callback
+    ) {
+        const isPDF =
+            file.mimetype ===
+            "application/pdf" ||
+            file.originalname
+            .toLowerCase()
+            .endsWith(".pdf");
+
+        if (!isPDF) {
+            return callback(
+                new Error(
+                    "Only PDF files are allowed."
+                )
+            );
+        }
+
+        callback(null, true);
+    },
+});
 
 /* =========================================
    GEMINI CLIENT
@@ -123,6 +171,14 @@ PROGRAMMING:
 - Explain important changes briefly.
 - Preserve the user's existing architecture when modifying their project.
 
+PDF UNDERSTANDING:
+- When a PDF is provided, carefully analyze its contents.
+- Answer questions using the uploaded PDF whenever possible.
+- If the user asks for a summary, summarize the uploaded PDF.
+- If the user asks about a specific section, page, table, or topic, use the PDF content.
+- Do not invent information that is not present in the PDF.
+- If the requested information cannot be found in the PDF, clearly say that it is not available in the document.
+
 CONVERSATION:
 - Remember the context available in the current conversation.
 - Answer follow-up questions naturally.
@@ -139,6 +195,7 @@ Your job is to help the user solve problems, learn, build projects, and have use
 ========================================= */
 
 function prepareContents(messages) {
+
     if (!Array.isArray(messages)) {
         throw new Error(
             "Messages must be an array."
@@ -152,28 +209,32 @@ function prepareContents(messages) {
     }
 
     const contents = messages
-        .filter(function(message) {
-            return (
-                message &&
-                (
-                    message.sender === "user" ||
-                    message.sender === "ai"
-                ) &&
-                typeof message.text === "string" &&
-                message.text.trim().length > 0
-            );
-        })
-        .map(function(message) {
-            return {
-                role: message.sender === "user" ?
-                    "user" :
-                    "model",
 
-                parts: [{
-                    text: message.text.trim(),
-                }, ],
-            };
-        });
+        .filter(function(message) {
+
+        return (
+            message &&
+            (
+                message.sender === "user" ||
+                message.sender === "ai"
+            ) &&
+            typeof message.text === "string" &&
+            message.text.trim().length > 0
+        );
+    })
+
+    .map(function(message) {
+
+        return {
+            role: message.sender === "user" ?
+                "user" :
+                "model",
+
+            parts: [{
+                text: message.text.trim(),
+            }, ],
+        };
+    });
 
     if (contents.length === 0) {
         throw new Error(
@@ -192,14 +253,18 @@ async function generateWithRetry(
     contents,
     maxRetries = 3
 ) {
+
     let lastError = null;
 
     for (
         let attempt = 0; attempt <= maxRetries; attempt++
     ) {
+
         try {
+
             const response =
                 await ai.models.generateContent({
+
                     model: "gemini-3.5-flash-lite",
 
                     config: {
@@ -214,11 +279,14 @@ async function generateWithRetry(
                 });
 
             return response;
+
         } catch (error) {
+
             lastError = error;
 
             const status =
-                error && error.status;
+                error &&
+                error.status;
 
             console.error(
                 `Gemini attempt ${
@@ -245,7 +313,9 @@ async function generateWithRetry(
              * Don't retry after final attempt.
              */
 
-            if (attempt === maxRetries) {
+            if (
+                attempt === maxRetries
+            ) {
                 break;
             }
 
@@ -259,7 +329,10 @@ async function generateWithRetry(
 
             const delay =
                 1000 *
-                Math.pow(2, attempt);
+                Math.pow(
+                    2,
+                    attempt
+                );
 
             console.log(
                 `⏳ Retrying Gemini request in ${
@@ -284,21 +357,27 @@ async function generateWithRetry(
    HEALTH CHECK
 ========================================= */
 
-app.get("/", function(req, res) {
-    res.status(200).json({
-        success: true,
-        message: "Aura AI Backend is running 🚀",
-    });
-});
+app.get(
+    "/",
+    function(req, res) {
+
+        res.status(200).json({
+            success: true,
+            message: "Aura AI Backend is running 🚀",
+        });
+    }
+);
 
 /* =========================================
-   CHAT API
+   NORMAL CHAT API
 ========================================= */
 
 app.post(
     "/api/chat",
     async function(req, res) {
+
         try {
+
             const messages =
                 req.body.messages;
 
@@ -307,7 +386,9 @@ app.post(
             ======================================= */
 
             const contents =
-                prepareContents(messages);
+                prepareContents(
+                    messages
+                );
 
             /* =======================================
                GEMINI REQUEST
@@ -324,7 +405,8 @@ app.post(
 
             const reply =
                 response &&
-                typeof response.text === "string" ?
+                typeof response.text ===
+                "string" ?
                 response.text.trim() :
                 "";
 
@@ -333,6 +415,7 @@ app.post(
             ======================================= */
 
             if (!reply) {
+
                 return res.status(502).json({
                     success: false,
                     error: "Gemini returned an empty response.",
@@ -347,20 +430,24 @@ app.post(
                 success: true,
                 reply: reply,
             });
+
         } catch (error) {
+
             console.error(
                 "❌ Gemini API Error:",
                 error
             );
 
             const status =
-                error && error.status;
+                error &&
+                error.status;
 
             /* =======================================
                QUOTA / RATE LIMIT
             ======================================= */
 
             if (status === 429) {
+
                 return res.status(429).json({
                     success: false,
                     error: "⚠️ Aura AI has reached the Gemini API quota or rate limit. Please try again later.",
@@ -372,6 +459,7 @@ app.post(
             ======================================= */
 
             if (status === 503) {
+
                 return res.status(503).json({
                     success: false,
                     error: "⚠️ Gemini is temporarily unavailable because of high demand. Please try again in a moment.",
@@ -386,6 +474,7 @@ app.post(
                 status === 500 ||
                 status === 502
             ) {
+
                 return res.status(502).json({
                     success: false,
                     error: "⚠️ Gemini is temporarily having a server problem. Please try again.",
@@ -400,7 +489,10 @@ app.post(
                 status === 401 ||
                 status === 403
             ) {
-                return res.status(status).json({
+
+                return res.status(
+                    status
+                ).json({
                     success: false,
                     error: "❌ Gemini API authentication failed. Please check the API key.",
                 });
@@ -411,6 +503,7 @@ app.post(
             ======================================= */
 
             if (status === 404) {
+
                 return res.status(404).json({
                     success: false,
                     error: "❌ The configured Gemini model is unavailable.",
@@ -432,15 +525,320 @@ app.post(
 );
 
 /* =========================================
+   PDF CHAT API
+========================================= */
+
+app.post(
+    "/api/chat/pdf",
+    upload.single("pdf"),
+
+    async function(req, res) {
+
+        try {
+
+            /* =======================================
+               CHECK PDF
+            ======================================= */
+
+            if (!req.file) {
+
+                return res.status(400).json({
+                    success: false,
+                    error: "Please upload a PDF file.",
+                });
+            }
+
+            /* =======================================
+               GET MESSAGES
+            ======================================= */
+
+            let messages = [];
+
+            try {
+
+                messages =
+                    JSON.parse(
+                        req.body.messages ||
+                        "[]"
+                    );
+
+            } catch (parseError) {
+
+                return res.status(400).json({
+                    success: false,
+                    error: "Invalid messages data.",
+                });
+            }
+
+            if (!Array.isArray(messages) ||
+                messages.length === 0
+            ) {
+
+                return res.status(400).json({
+                    success: false,
+                    error: "Messages are required.",
+                });
+            }
+
+            /* =======================================
+               PREPARE NORMAL CHAT
+            ======================================= */
+
+            const contents =
+                prepareContents(
+                    messages
+                );
+
+            /* =======================================
+               PDF → BASE64
+            ======================================= */
+
+            const pdfBase64 =
+                req.file.buffer.toString(
+                    "base64"
+                );
+
+            /* =======================================
+               ADD PDF TO GEMINI REQUEST
+            ======================================= */
+
+            const pdfContents = [
+                ...contents,
+
+                {
+                    role: "user",
+
+                    parts: [{
+                            inlineData: {
+                                mimeType: "application/pdf",
+
+                                data: pdfBase64,
+                            },
+                        },
+
+                        {
+                            text: `The user has uploaded a PDF named "${req.file.originalname}".
+
+Analyze the uploaded PDF carefully.
+
+Use the PDF as the primary source for answering the user's request.
+
+If the user asks for:
+- a summary → provide a clear summary
+- questions → answer using the PDF
+- explanation → explain the relevant PDF content
+- specific information → locate it in the PDF
+
+If the requested information is not available in the PDF, clearly say that it was not found in the document.
+
+Do not invent information.`,
+                        },
+                    ],
+                },
+            ];
+
+            /* =======================================
+               GEMINI PDF REQUEST
+            ======================================= */
+
+            const response =
+                await generateWithRetry(
+                    pdfContents
+                );
+
+            /* =======================================
+               RESPONSE TEXT
+            ======================================= */
+
+            const reply =
+                response &&
+                typeof response.text ===
+                "string" ?
+                response.text.trim() :
+                "";
+
+            /* =======================================
+               EMPTY RESPONSE
+            ======================================= */
+
+            if (!reply) {
+
+                return res.status(502).json({
+                    success: false,
+                    error: "Gemini returned an empty response for the PDF.",
+                });
+            }
+
+            /* =======================================
+               SUCCESS
+            ======================================= */
+
+            return res.status(200).json({
+                success: true,
+                reply: reply,
+            });
+
+        } catch (error) {
+
+            console.error(
+                "❌ PDF Gemini API Error:",
+                error
+            );
+
+            const status =
+                error &&
+                error.status;
+
+            /* =======================================
+               FILE TOO LARGE
+            ======================================= */
+
+            if (
+                error &&
+                error.code ===
+                "LIMIT_FILE_SIZE"
+            ) {
+
+                return res.status(413).json({
+                    success: false,
+                    error: "❌ PDF is too large. Maximum allowed size is 10 MB.",
+                });
+            }
+
+            /* =======================================
+               INVALID FILE
+            ======================================= */
+
+            if (
+                error &&
+                error.message ===
+                "Only PDF files are allowed."
+            ) {
+
+                return res.status(400).json({
+                    success: false,
+                    error: "❌ Only PDF files are allowed.",
+                });
+            }
+
+            /* =======================================
+               QUOTA
+            ======================================= */
+
+            if (status === 429) {
+
+                return res.status(429).json({
+                    success: false,
+                    error: "⚠️ Aura AI has reached the Gemini API quota or rate limit. Please try again later.",
+                });
+            }
+
+            /* =======================================
+               TEMPORARY UNAVAILABLE
+            ======================================= */
+
+            if (status === 503) {
+
+                return res.status(503).json({
+                    success: false,
+                    error: "⚠️ Gemini is temporarily unavailable. Please try again in a moment.",
+                });
+            }
+
+            /* =======================================
+               AUTHENTICATION
+            ======================================= */
+
+            if (
+                status === 401 ||
+                status === 403
+            ) {
+
+                return res.status(
+                    status
+                ).json({
+                    success: false,
+                    error: "❌ Gemini API authentication failed. Please check the API key.",
+                });
+            }
+
+            /* =======================================
+               SERVER ERROR
+            ======================================= */
+
+            if (
+                status === 500 ||
+                status === 502
+            ) {
+
+                return res.status(502).json({
+                    success: false,
+                    error: "⚠️ Gemini is temporarily having a server problem. Please try again.",
+                });
+            }
+
+            /* =======================================
+               GENERIC ERROR
+            ======================================= */
+
+            return res.status(500).json({
+                success: false,
+                error: error instanceof Error ?
+                    error.message :
+                    "❌ Failed to process PDF.",
+            });
+        }
+    }
+);
+
+/* =========================================
+   MULTER / UPLOAD ERROR HANDLER
+========================================= */
+
+app.use(
+    function(error, req, res, next) {
+
+        if (
+            error &&
+            error.code ===
+            "LIMIT_FILE_SIZE"
+        ) {
+
+            return res.status(413).json({
+                success: false,
+                error: "❌ PDF is too large. Maximum allowed size is 10 MB.",
+            });
+        }
+
+        if (
+            error &&
+            error.message ===
+            "Only PDF files are allowed."
+        ) {
+
+            return res.status(400).json({
+                success: false,
+                error: "❌ Only PDF files are allowed.",
+            });
+        }
+
+        next(error);
+    }
+);
+
+/* =========================================
    404 ROUTE
 ========================================= */
 
-app.use(function(req, res) {
-    res.status(404).json({
-        success: false,
-        error: "Route not found.",
-    });
-});
+app.use(
+    function(req, res) {
+
+        res.status(404).json({
+            success: false,
+            error: "Route not found.",
+        });
+    }
+);
 
 /* =========================================
    START SERVER
@@ -449,7 +847,9 @@ app.use(function(req, res) {
 app.listen(
     PORT,
     "0.0.0.0",
+
     function() {
+
         console.log(
             "🚀 Aura AI Backend running on port " +
             PORT

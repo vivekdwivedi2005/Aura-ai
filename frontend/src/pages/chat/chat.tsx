@@ -4,7 +4,10 @@ import Sidebar, {
 } from "../../components/chat/Sidebar";
 import ChatWindow from "../../components/chat/ChatWindow";
 import ChatInput from "../../components/chat/ChatInput";
-import { askGemini } from "../../services/gemini";
+import {
+  askGemini,
+  askGeminiWithPDF,
+} from "../../services/gemini";
 import { supabase } from "../../lib/supabase";
 
 export type ChatMessage = {
@@ -29,6 +32,7 @@ type SupabaseUser = {
 type MessageQueueItem = {
   chatId: string;
   userMessage: ChatMessage;
+  file?: File;
 };
 
 const ACTIVE_CHAT_STORAGE_PREFIX =
@@ -46,7 +50,8 @@ function Chat() {
   const [chats, setChats] = useState<Chat[]>([]);
   const [activeChatId, setActiveChatId] =
     useState<string>("");
-  const [isTyping, setIsTyping] = useState(false);
+  const [isTyping, setIsTyping] =
+    useState(false);
   const [isLoadingChats, setIsLoadingChats] =
     useState(true);
 
@@ -54,9 +59,6 @@ function Chat() {
    * =========================================
    * REFS
    * =========================================
-   *
-   * Refs keep the latest chat state available
-   * even while Gemini requests are running.
    */
 
   const chatsRef = useRef<Chat[]>([]);
@@ -69,23 +71,6 @@ function Chat() {
 
   const isProcessingQueueRef =
     useRef(false);
-
-  /*
-   * AI context is maintained separately from
-   * the UI messages.
-   *
-   * This allows:
-   *
-   * Message 1 → Gemini
-   * Message 2 → wait
-   * Message 3 → wait
-   *
-   * After Message 1 response:
-   *
-   * Message 1
-   * AI response 1
-   * Message 2 → Gemini
-   */
 
   const aiContextRef = useRef<
     Record<string, ChatMessage[]>
@@ -119,10 +104,6 @@ function Chat() {
       setIsLoadingChats(true);
 
       try {
-        /*
-         * Get currently authenticated user
-         */
-
         const {
           data: { user },
           error: userError,
@@ -221,7 +202,8 @@ function Chat() {
               id: newChat.id,
               user_id:
                 newChat.user_id,
-              title: newChat.title,
+              title:
+                newChat.title,
               messages:
                 Array.isArray(
                   newChat.messages
@@ -237,7 +219,7 @@ function Chat() {
         if (!mounted) return;
 
         /*
-         * Initialize AI context for every chat.
+         * Initialize AI context.
          */
 
         const initialContexts: Record<
@@ -259,8 +241,7 @@ function Chat() {
         setChats(loadedChats);
 
         /*
-         * Restore previously active chat
-         * for this specific user.
+         * Restore active chat.
          */
 
         const activeStorageKey =
@@ -367,8 +348,8 @@ function Chat() {
   const handleNewChat =
     async () => {
       /*
-       * Don't switch chats while queued
-       * messages are being processed.
+       * Don't switch chats while queue
+       * is processing.
        */
 
       if (isTyping) return;
@@ -407,7 +388,8 @@ function Chat() {
             id: newChat.id,
             user_id:
               newChat.user_id,
-            title: newChat.title,
+            title:
+              newChat.title,
             messages:
               Array.isArray(
                 newChat.messages
@@ -512,7 +494,7 @@ function Chat() {
       ];
 
       /*
-       * Don't allow user to have zero chats.
+       * Don't allow zero chats.
        */
 
       if (
@@ -552,7 +534,8 @@ function Chat() {
             id: newChat.id,
             user_id:
               newChat.user_id,
-            title: newChat.title,
+            title:
+              newChat.title,
             messages:
               Array.isArray(
                 newChat.messages
@@ -673,7 +656,7 @@ function Chat() {
 
   /*
    * =========================================
-   * INSERT MESSAGE INTO CHAT
+   * UPDATE CHAT MESSAGES
    * =========================================
    */
 
@@ -705,7 +688,7 @@ function Chat() {
 
   /*
    * =========================================
-   * INSERT AI RESPONSE AFTER USER MESSAGE
+   * INSERT AI RESPONSE
    * =========================================
    */
 
@@ -775,15 +758,12 @@ function Chat() {
           const {
             chatId,
             userMessage,
+            file,
           } = queueItem;
 
           /*
-           * Get AI context BEFORE adding
-           * this queued user message.
-           *
-           * This prevents later queued
-           * messages from being sent to
-           * the previous Gemini request.
+           * Get AI context before adding
+           * current queued message.
            */
 
           const currentAIContext =
@@ -791,18 +771,14 @@ function Chat() {
               chatId
             ] || defaultMessages;
 
-          const geminiMessages: ChatMessage[] =
-            [
+          const geminiMessages:
+            ChatMessage[] = [
               ...currentAIContext,
               userMessage,
             ];
 
           /*
-           * Save current UI messages to
-           * Supabase before asking Gemini.
-           *
-           * This guarantees the user's message
-           * is persisted even if Gemini fails.
+           * Get latest chat.
            */
 
           const currentChat =
@@ -816,6 +792,10 @@ function Chat() {
           }
 
           try {
+            /*
+             * Save user message first.
+             */
+
             const {
               error:
                 saveUserMessageError,
@@ -839,16 +819,34 @@ function Chat() {
             }
 
             /*
-             * Ask Gemini.
+             * =================================
+             * ASK GEMINI
+             * =================================
+             *
+             * If PDF exists:
+             *
+             * /api/chat/pdf
+             *
+             * Otherwise:
+             *
+             * /api/chat
              */
 
-            const reply =
-              await askGemini(
-                geminiMessages
-              );
+            const reply = file
+              ? await askGeminiWithPDF(
+                  geminiMessages,
+                  file
+                )
+              : await askGemini(
+                  geminiMessages
+                );
 
-            const aiMessage: ChatMessage =
-              {
+            /*
+             * Create AI response.
+             */
+
+            const aiMessage:
+              ChatMessage = {
                 id:
                   `ai-${Date.now()}-${Math.random()
                     .toString(36)
@@ -875,8 +873,7 @@ function Chat() {
 
             /*
              * Insert AI response immediately
-             * after the corresponding user
-             * message.
+             * after corresponding user message.
              */
 
             const finalMessages =
@@ -888,10 +885,6 @@ function Chat() {
 
             /*
              * Update AI context.
-             *
-             * Only this completed exchange
-             * is added to Gemini's sequential
-             * context.
              */
 
             aiContextRef.current[
@@ -937,6 +930,7 @@ function Chat() {
               finalMessages,
               latestChat.title
             );
+
           } catch (error) {
             console.error(
               "Chat queue item error:",
@@ -975,9 +969,8 @@ function Chat() {
               );
 
             /*
-             * Add the failed exchange to
-             * context too, so queue processing
-             * can continue naturally.
+             * Add failed exchange to
+             * context so queue can continue.
              */
 
             aiContextRef.current[
@@ -1020,23 +1013,27 @@ function Chat() {
    * =========================================
    * SEND MESSAGE
    * =========================================
+   *
+   * Supports:
+   *
+   * 1. Normal text
+   * 2. PDF + text
+   * 3. PDF only
    */
 
   const handleSend = (
-    text: string
+    text: string,
+    file?: File
   ) => {
     /*
      * IMPORTANT:
      *
-     * We intentionally DO NOT check
-     * isTyping here.
-     *
-     * User can send another message while
-     * Aura AI is thinking.
+     * Do not block sending while AI
+     * is processing.
      */
 
     if (
-      !text.trim() ||
+      (!text.trim() && !file) ||
       !activeChat
     ) {
       return;
@@ -1048,14 +1045,24 @@ function Chat() {
     const chatId =
       activeChat.id;
 
-    const userMessage: ChatMessage =
-      {
+    /*
+     * Create visible message text.
+     */
+
+    const displayText = file
+      ? cleanText
+        ? `📄 ${file.name}\n\n${cleanText}`
+        : `📄 ${file.name}`
+      : cleanText;
+
+    const userMessage:
+      ChatMessage = {
         id:
           `user-${Date.now()}-${Math.random()
             .toString(36)
             .slice(2)}`,
         sender: "user",
-        text: cleanText,
+        text: displayText,
       };
 
     const currentChat =
@@ -1068,42 +1075,51 @@ function Chat() {
       return;
     }
 
-    const updatedMessages: ChatMessage[] =
-      [
+    /*
+     * Immediately update UI.
+     */
+
+    const updatedMessages:
+      ChatMessage[] = [
         ...currentChat.messages,
         userMessage,
       ];
 
     /*
-     * Create title from first user message.
+     * Create title from first
+     * user message / PDF.
      */
 
     let updatedTitle =
       currentChat.title;
 
-    if (
-      currentChat.title ===
-        "New Chat" ||
+    const userMessagesCount =
       currentChat.messages.filter(
         (message) =>
           message.sender === "user"
-      ).length === 0
+      ).length;
+
+    if (
+      currentChat.title ===
+        "New Chat" ||
+      userMessagesCount === 0
     ) {
+      const titleSource =
+        cleanText ||
+        file?.name ||
+        "PDF Chat";
+
       updatedTitle =
-        cleanText.length > 32
-          ? `${cleanText.slice(
+        titleSource.length > 32
+          ? `${titleSource.slice(
               0,
               32
             )}...`
-          : cleanText;
+          : titleSource;
     }
 
     /*
-     * Immediately update UI.
-     *
-     * This is the key fix:
-     * user's second/third message is
-     * visible even while Gemini is thinking.
+     * Show message immediately.
      */
 
     updateChatMessages(
@@ -1113,22 +1129,19 @@ function Chat() {
     );
 
     /*
-     * Add message to FIFO queue.
+     * Add to FIFO queue.
      */
 
     messageQueueRef.current.push(
       {
         chatId,
         userMessage,
+        file,
       }
     );
 
     /*
-     * Start queue processor.
-     *
-     * If it is already running,
-     * this does nothing because the
-     * processor checks its lock.
+     * Start processor.
      */
 
     void processMessageQueue();
@@ -1140,7 +1153,8 @@ function Chat() {
    * =========================================
    */
 
-  const sidebarChats: ChatHistoryItem[] =
+  const sidebarChats:
+    ChatHistoryItem[] =
     chats.map((chat) => ({
       id: chat.id,
       title: chat.title,
@@ -1168,11 +1182,13 @@ function Chat() {
     return (
       <div className="flex h-screen items-center justify-center bg-[#212121] text-white">
         <div className="flex flex-col items-center gap-4">
+
           <div className="h-9 w-9 animate-spin rounded-full border-2 border-[#3d3d3d] border-t-violet-500" />
 
           <p className="text-sm text-slate-500">
             Loading your conversations...
           </p>
+
         </div>
       </div>
     );
@@ -1186,6 +1202,7 @@ function Chat() {
 
   return (
     <div className="flex h-screen min-h-0 overflow-hidden bg-slate-950 text-white">
+
       {/* Sidebar */}
 
       <Sidebar
@@ -1210,7 +1227,9 @@ function Chat() {
       {/* Main Chat */}
 
       <div className="flex h-full min-h-0 flex-1 flex-col">
+
         <div className="relative h-0 min-h-0 flex-1 overflow-hidden">
+
           <ChatWindow
             messages={messages}
           />
@@ -1219,13 +1238,17 @@ function Chat() {
 
           {isTyping && (
             <div className="absolute bottom-6 left-10 z-10">
+
               <div className="flex items-center gap-3">
+
                 <div className="flex h-10 w-10 items-center justify-center rounded-full border border-slate-700 bg-slate-800">
                   🤖
                 </div>
 
                 <div className="rounded-3xl border border-slate-700 bg-slate-800 px-5 py-4">
+
                   <div className="flex gap-2">
+
                     <div className="h-2 w-2 animate-bounce rounded-full bg-violet-400" />
 
                     <div
@@ -1243,21 +1266,30 @@ function Chat() {
                           "0.3s",
                       }}
                     />
+
                   </div>
+
                 </div>
+
               </div>
+
             </div>
           )}
+
         </div>
 
         {/* Input */}
 
         <div className="shrink-0">
+
           <ChatInput
             onSend={handleSend}
           />
+
         </div>
+
       </div>
+
     </div>
   );
 }
