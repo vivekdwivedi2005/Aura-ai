@@ -28,11 +28,17 @@ function ChatInput({
   const [selectedFile, setSelectedFile] =
     useState<File | undefined>();
 
+  const [isListening, setIsListening] =
+    useState(false);
+
   const textareaRef =
     useRef<HTMLTextAreaElement>(null);
 
   const fileInputRef =
     useRef<HTMLInputElement>(null);
+
+  const recognitionRef =
+    useRef<any>(null);
 
   /*
    * =========================================
@@ -46,6 +52,17 @@ function ChatInput({
     if (!message && !selectedFile) {
       return;
     }
+
+    // Stop voice recognition before sending
+    if (recognitionRef.current) {
+      try {
+        recognitionRef.current.stop();
+      } catch {
+        // Recognition may already be stopped
+      }
+    }
+
+    setIsListening(false);
 
     onSend(message, selectedFile);
 
@@ -145,6 +162,138 @@ function ChatInput({
 
   /*
    * =========================================
+   * VOICE TO TEXT
+   * =========================================
+   */
+
+  const handleVoiceInput = () => {
+    // Browser support check
+    const SpeechRecognition =
+      (window as any).SpeechRecognition ||
+      (window as any)
+        .webkitSpeechRecognition;
+
+    if (!SpeechRecognition) {
+      alert(
+        "Voice input is not supported in this browser. Please use Google Chrome or Microsoft Edge."
+      );
+      return;
+    }
+
+    // If already listening → stop
+    if (isListening) {
+      if (recognitionRef.current) {
+        try {
+          recognitionRef.current.stop();
+        } catch {
+          // Already stopped
+        }
+      }
+
+      setIsListening(false);
+      return;
+    }
+
+    const recognition =
+      new SpeechRecognition();
+
+    recognition.continuous = true;
+    recognition.interimResults = true;
+
+    // English + Hindi support
+    recognition.lang = "en-IN";
+
+    recognition.onstart = () => {
+      setIsListening(true);
+    };
+
+    recognition.onresult = (
+      event: any
+    ) => {
+      let finalTranscript = "";
+      let interimTranscript = "";
+
+      for (
+        let i = event.resultIndex;
+        i < event.results.length;
+        i++
+      ) {
+        const transcript =
+          event.results[i][0].transcript;
+
+        if (
+          event.results[i].isFinal
+        ) {
+          finalTranscript +=
+            transcript;
+        } else {
+          interimTranscript +=
+            transcript;
+        }
+      }
+
+      if (finalTranscript) {
+        setText((previousText) => {
+          const separator =
+            previousText.trim()
+              ? " "
+              : "";
+
+          return (
+            previousText +
+            separator +
+            finalTranscript.trim()
+          );
+        });
+      }
+
+      /*
+       * Interim text is intentionally not
+       * inserted into textarea permanently.
+       */
+    };
+
+    recognition.onerror = (
+      event: any
+    ) => {
+      console.error(
+        "Speech Recognition Error:",
+        event.error
+      );
+
+      setIsListening(false);
+
+      if (
+        event.error ===
+        "not-allowed"
+      ) {
+        alert(
+          "Microphone permission was denied. Please allow microphone access in your browser."
+        );
+      }
+    };
+
+    recognition.onend = () => {
+      setIsListening(false);
+    };
+
+    recognitionRef.current =
+      recognition;
+
+    try {
+      recognition.start();
+    } catch (error) {
+      console.error(
+        "Unable to start speech recognition:",
+        error
+      );
+
+      setIsListening(false);
+    }
+  };
+
+  /*
+   * =========================================
    * KEYBOARD
    * =========================================
    */
@@ -186,6 +335,7 @@ function ChatInput({
 
         {selectedFile && (
           <div className="mb-3 flex items-center gap-3 rounded-2xl border border-violet-500/20 bg-violet-500/[0.06] px-3 py-2.5 transition">
+
             {/* PDF Icon */}
 
             <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-red-500/20 bg-red-500/10 text-red-400">
@@ -240,7 +390,11 @@ function ChatInput({
           value={text}
           onChange={handleChange}
           onKeyDown={handleKeyDown}
-          placeholder="Message Aura AI..."
+          placeholder={
+            isListening
+              ? "Listening..."
+              : "Message Aura AI..."
+          }
           aria-label="Message Aura AI"
           spellCheck={true}
         />
@@ -303,8 +457,22 @@ function ChatInput({
 
             <button
               type="button"
-              title="Voice input"
-              aria-label="Voice input"
+              onClick={handleVoiceInput}
+              title={
+                isListening
+                  ? "Stop voice input"
+                  : "Voice input"
+              }
+              aria-label={
+                isListening
+                  ? "Stop voice input"
+                  : "Voice input"
+              }
+              className={
+                isListening
+                  ? "aura-voice-listening"
+                  : ""
+              }
             >
               <Mic
                 size={18}
