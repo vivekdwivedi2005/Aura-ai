@@ -22,7 +22,7 @@ function Message({ sender, text }: MessageProps) {
       await navigator.clipboard.writeText(text);
       setCopied(true);
 
-      setTimeout(() => {
+      window.setTimeout(() => {
         setCopied(false);
       }, 1500);
     } catch (error) {
@@ -35,12 +35,16 @@ function Message({ sender, text }: MessageProps) {
       className={`aura-message ${
         isUser ? "user-message" : "ai-message"
       }`}
+      aria-label={
+        isUser ? "Your message" : "Aura AI response"
+      }
     >
       {/* Avatar */}
       <div
         className={`aura-message-avatar ${
           isUser ? "user-avatar" : "ai-avatar"
         }`}
+        aria-hidden="true"
       >
         {isUser ? (
           <User size={15} />
@@ -52,7 +56,7 @@ function Message({ sender, text }: MessageProps) {
         )}
       </div>
 
-      {/* Content */}
+      {/* Message content */}
       <div className="aura-message-content">
         {isUser ? (
           <div className="aura-user-text">
@@ -83,6 +87,10 @@ function Message({ sender, text }: MessageProps) {
                   <strong>{children}</strong>
                 ),
 
+                em: ({ children }) => (
+                  <em>{children}</em>
+                ),
+
                 ul: ({ children }) => (
                   <ul>{children}</ul>
                 ),
@@ -99,9 +107,16 @@ function Message({ sender, text }: MessageProps) {
                   <blockquote>{children}</blockquote>
                 ),
 
+                hr: () => <hr />,
+
                 code: ({
                   className,
                   children,
+                  inline,
+                }: {
+                  className?: string;
+                  children?: React.ReactNode;
+                  inline?: boolean;
                 }) => {
                   const match =
                     /language-(\w+)/.exec(
@@ -113,7 +128,11 @@ function Message({ sender, text }: MessageProps) {
                     ""
                   );
 
-                  if (!match) {
+                  /*
+                   * Inline code:
+                   * Example: `npm install`
+                   */
+                  if (inline) {
                     return (
                       <code className="aura-inline-code">
                         {children}
@@ -121,9 +140,20 @@ function Message({ sender, text }: MessageProps) {
                     );
                   }
 
+                  /*
+                   * Fenced code:
+                   * ```python
+                   * print("Hello")
+                   * ```
+                   *
+                   * Also handles fenced code without
+                   * a specified language.
+                   */
                   return (
                     <CodeBlock
-                      language={match[1]}
+                      language={
+                        match?.[1] || "code"
+                      }
                       code={code}
                     />
                   );
@@ -133,20 +163,44 @@ function Message({ sender, text }: MessageProps) {
                   <>{children}</>
                 ),
 
-                a: ({ href, children }) => (
-                  <a
-                    href={href}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                  >
-                    {children}
-                  </a>
-                ),
+                a: ({ href, children }) => {
+                  const isSafeLink =
+                    typeof href === "string" &&
+                    /^https?:\/\//i.test(href);
+
+                  if (!isSafeLink) {
+                    return (
+                      <span>{children}</span>
+                    );
+                  }
+
+                  return (
+                    <a
+                      href={href}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                    >
+                      {children}
+                    </a>
+                  );
+                },
 
                 table: ({ children }) => (
                   <div className="aura-table-wrapper">
                     <table>{children}</table>
                   </div>
+                ),
+
+                thead: ({ children }) => (
+                  <thead>{children}</thead>
+                ),
+
+                tbody: ({ children }) => (
+                  <tbody>{children}</tbody>
+                ),
+
+                tr: ({ children }) => (
+                  <tr>{children}</tr>
                 ),
 
                 th: ({ children }) => (
@@ -163,15 +217,25 @@ function Message({ sender, text }: MessageProps) {
           </div>
         )}
 
-        {/* Message action */}
+        {/* Message actions */}
         <div
           className={`aura-message-actions ${
             isUser ? "user-actions" : ""
           }`}
         >
           <button
+            type="button"
             onClick={copyMessage}
-            title="Copy message"
+            title={
+              copied
+                ? "Copied"
+                : "Copy message"
+            }
+            aria-label={
+              copied
+                ? "Message copied"
+                : "Copy message"
+            }
           >
             {copied ? (
               <Check
@@ -202,20 +266,38 @@ function CodeBlock({
       await navigator.clipboard.writeText(code);
       setCopied(true);
 
-      setTimeout(() => {
+      window.setTimeout(() => {
         setCopied(false);
       }, 1500);
     } catch (error) {
-      console.error("Copy code failed:", error);
+      console.error(
+        "Copy code failed:",
+        error
+      );
     }
   };
 
   return (
     <div className="aura-code-block">
       <div className="aura-code-header">
-        <span>{language}</span>
+        <span className="aura-code-language">
+          {language}
+        </span>
 
-        <button onClick={copyCode}>
+        <button
+          type="button"
+          onClick={copyCode}
+          title={
+            copied
+              ? "Code copied"
+              : "Copy code"
+          }
+          aria-label={
+            copied
+              ? "Code copied"
+              : "Copy code"
+          }
+        >
           {copied ? (
             <>
               <Check size={13} />

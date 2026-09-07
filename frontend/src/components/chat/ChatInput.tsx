@@ -1,4 +1,10 @@
-import { useRef, useState } from "react";
+import {
+  useRef,
+  useState,
+  type ChangeEvent,
+  type KeyboardEvent,
+} from "react";
+
 import {
   Paperclip,
   Mic,
@@ -28,6 +34,12 @@ function ChatInput({
   const fileInputRef =
     useRef<HTMLInputElement>(null);
 
+  /*
+   * =========================================
+   * SEND MESSAGE
+   * =========================================
+   */
+
   const handleSend = () => {
     const message = text.trim();
 
@@ -50,18 +62,32 @@ function ChatInput({
     }
   };
 
+  /*
+   * =========================================
+   * PDF SELECT
+   * =========================================
+   */
+
   const handleFileSelect = (
-    e: React.ChangeEvent<HTMLInputElement>
+    e: ChangeEvent<HTMLInputElement>
   ) => {
     const file = e.target.files?.[0];
 
-    if (!file) return;
+    if (!file) {
+      return;
+    }
 
-    if (
-      file.type !== "application/pdf" &&
-      !file.name.toLowerCase().endsWith(".pdf")
-    ) {
-      alert("Please select a PDF file.");
+    const isPDF =
+      file.type === "application/pdf" ||
+      file.name
+        .toLowerCase()
+        .endsWith(".pdf");
+
+    if (!isPDF) {
+      alert(
+        "Please select a PDF file."
+      );
+
       e.target.value = "";
       return;
     }
@@ -73,12 +99,19 @@ function ChatInput({
       alert(
         "PDF size must be 10 MB or less."
       );
+
       e.target.value = "";
       return;
     }
 
     setSelectedFile(file);
   };
+
+  /*
+   * =========================================
+   * REMOVE PDF
+   * =========================================
+   */
 
   const removeFile = () => {
     setSelectedFile(undefined);
@@ -88,8 +121,14 @@ function ChatInput({
     }
   };
 
+  /*
+   * =========================================
+   * TEXTAREA
+   * =========================================
+   */
+
   const handleChange = (
-    e: React.ChangeEvent<HTMLTextAreaElement>
+    e: ChangeEvent<HTMLTextAreaElement>
   ) => {
     const value = e.target.value;
     const textarea = e.target;
@@ -104,9 +143,20 @@ function ChatInput({
     )}px`;
   };
 
+  /*
+   * =========================================
+   * KEYBOARD
+   * =========================================
+   */
+
   const handleKeyDown = (
-    e: React.KeyboardEvent<HTMLTextAreaElement>
+    e: KeyboardEvent<HTMLTextAreaElement>
   ) => {
+    /*
+     * Enter = send
+     * Shift + Enter = new line
+     */
+
     if (
       e.key === "Enter" &&
       !e.shiftKey
@@ -120,46 +170,69 @@ function ChatInput({
     Boolean(text.trim()) ||
     Boolean(selectedFile);
 
+  /*
+   * =========================================
+   * UI
+   * =========================================
+   */
+
   return (
     <div className="aura-composer-area">
       <div className="aura-composer">
 
-        {/* PDF Preview */}
+        {/* =================================
+            PDF PREVIEW
+        ================================= */}
 
         {selectedFile && (
-          <div className="mb-3 flex items-center justify-between rounded-xl border border-slate-700 bg-slate-800/70 px-3 py-2">
-            <div className="flex min-w-0 items-center gap-3">
-              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-red-500/10 text-red-400">
-                <FileText size={18} />
-              </div>
+          <div className="mb-3 flex items-center gap-3 rounded-2xl border border-violet-500/20 bg-violet-500/[0.06] px-3 py-2.5 transition">
+            {/* PDF Icon */}
 
-              <div className="min-w-0">
-                <p className="truncate text-sm text-white">
-                  {selectedFile.name}
-                </p>
-
-                <p className="text-xs text-slate-500">
-                  PDF •{" "}
-                  {(
-                    selectedFile.size /
-                    1024 /
-                    1024
-                  ).toFixed(2)}{" "}
-                  MB
-                </p>
-              </div>
+            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-red-500/20 bg-red-500/10 text-red-400">
+              <FileText
+                size={18}
+                strokeWidth={1.8}
+              />
             </div>
+
+            {/* File information */}
+
+            <div className="min-w-0 flex-1">
+              <p
+                className="truncate text-sm font-medium text-slate-200"
+                title={selectedFile.name}
+              >
+                {selectedFile.name}
+              </p>
+
+              <p className="mt-0.5 text-xs text-slate-500">
+                PDF •{" "}
+                {(
+                  selectedFile.size /
+                  1024 /
+                  1024
+                ).toFixed(2)}{" "}
+                MB
+              </p>
+            </div>
+
+            {/* Remove */}
 
             <button
               type="button"
               onClick={removeFile}
               title="Remove PDF"
-              className="shrink-0 text-slate-400 transition hover:text-white"
+              aria-label="Remove selected PDF"
+              className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-slate-500 transition hover:bg-white/5 hover:text-slate-200"
             >
               <X size={17} />
             </button>
           </div>
         )}
+
+        {/* =================================
+            MESSAGE INPUT
+        ================================= */}
 
         <textarea
           ref={textareaRef}
@@ -168,9 +241,18 @@ function ChatInput({
           onChange={handleChange}
           onKeyDown={handleKeyDown}
           placeholder="Message Aura AI..."
+          aria-label="Message Aura AI"
+          spellCheck={true}
         />
 
+        {/* =================================
+            BOTTOM TOOLBAR
+        ================================= */}
+
         <div className="aura-composer-bottom">
+
+          {/* Left actions */}
+
           <div className="aura-composer-left">
 
             {/* Hidden PDF input */}
@@ -183,50 +265,81 @@ function ChatInput({
               className="hidden"
             />
 
-            {/* Attach PDF */}
+            {/* Attach */}
 
             <button
               type="button"
               title="Upload PDF"
+              aria-label="Upload PDF"
               onClick={() =>
                 fileInputRef.current?.click()
               }
             >
-              <Paperclip size={18} />
+              <Paperclip
+                size={18}
+                strokeWidth={1.8}
+              />
             </button>
+
+            {/* AI Tools */}
 
             <button
               type="button"
               title="AI tools"
+              aria-label="AI tools"
             >
-              <Sparkles size={18} />
+              <Sparkles
+                size={18}
+                strokeWidth={1.8}
+              />
             </button>
           </div>
 
+          {/* Right actions */}
+
           <div className="aura-composer-right">
+
+            {/* Voice */}
+
             <button
               type="button"
               title="Voice input"
+              aria-label="Voice input"
             >
-              <Mic size={18} />
+              <Mic
+                size={18}
+                strokeWidth={1.8}
+              />
             </button>
+
+            {/* Send */}
 
             <button
               type="button"
               onClick={handleSend}
               disabled={!canSend}
               className="aura-send-button"
-              title="Send"
+              title={
+                canSend
+                  ? "Send message"
+                  : "Type a message"
+              }
+              aria-label="Send message"
             >
-              <SendHorizontal size={17} />
+              <SendHorizontal
+                size={17}
+                strokeWidth={2}
+              />
             </button>
           </div>
         </div>
       </div>
 
+      {/* Disclaimer */}
+
       <p className="aura-composer-disclaimer">
-        Aura AI can make mistakes. Check important
-        information.
+        Aura AI can make mistakes. Check
+        important information.
       </p>
     </div>
   );
